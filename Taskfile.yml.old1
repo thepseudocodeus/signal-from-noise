@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+vars:
+  GREETING: Hello, world!
+
+tasks:
+  default:
+    desc: show tasks
+    cmds:
+      - task -a
+    silent: true
+
+
+  wails-help:
+    desc: get wails help
+    cmds:
+      - wails init -help
+
+  run:
+    desc: run app
+    cmds:
+      - wails dev
