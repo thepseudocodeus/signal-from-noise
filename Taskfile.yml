@@ -7,7 +7,18 @@ vars:
 
 tasks:
   default:
-    desc: Print a greeting message
+    desc: show tasks
     cmds:
-      - echo "{{.GREETING}}"
+      - task -a
     silent: true
+
+
+  wails-help:
+    desc: get wails help
+    cmds:
+      - wails init -help
+
+  dev:
+    desc: run app
+    cmds:
+      - wails dev
