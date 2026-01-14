@@ -102,7 +102,7 @@ export function ReviewStep({ query, onConfirm, onEdit }: ReviewStepProps) {
               <h3 className="font-semibold text-gray-900 mb-2">Keywords</h3>
               <div className="flex flex-wrap gap-2">
                 {query.keywords.length > 0 ? (
-                  query.keywords.map((keyword) => (
+                  query.keywords.map((keyword: string) => (
                     <Badge key={keyword} color="gray">
                       {keyword}
                     </Badge>

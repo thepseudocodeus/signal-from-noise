@@ -1,11 +1,11 @@
 import { Button, Card } from 'flowbite-react';
-import { InformationRequest } from '../../types/query';
+import { ProductionRequest } from '../../types/query';
 import { ProgressIndicator } from '../shared/ProgressIndicator';
 
 interface QueryTypeStepProps {
-  requests: InformationRequest[];
-  selected: InformationRequest | null;
-  onSelect: (request: InformationRequest) => void;
+  requests: ProductionRequest[];
+  selected: ProductionRequest | null;
+  onSelect: (request: ProductionRequest) => void;
   onNext: () => void;
   onBack: () => void;
 }
