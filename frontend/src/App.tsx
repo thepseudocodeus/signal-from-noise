@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { QueryState, PRODUCTION_REQUESTS, YearRange } from './types/query';
+import { ProductionRequestSelectionPage } from './components/pages/ProductionRequestSelectionPage';
 import { SplashStep } from './components/steps/SplashStep';
 import { ProductionRequestStep } from './components/steps/ProductionRequestStep';
 import { YearRangeStep } from './components/steps/YearRangeStep';
 import { ResultsStep } from './components/steps/ResultsStep';
-import { GetEmailFileCount } from '../wailsjs/go/main/App';
 
 type Step = 'splash' | 'production-request' | 'year-range' | 'results';
 
-function App() {
+function AppContent() {
+  const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState<Step>('splash');
+  const [selectedProductionRequestNumber, setSelectedProductionRequestNumber] = useState<number | null>(null);
   const [query, setQuery] = useState<QueryState>({
     productionRequest: null,
     categories: [],
@@ -19,26 +22,22 @@ function App() {
     }
   });
 
-  // Results state (will come from Wails backend)
   const [fileCount, setFileCount] = useState<number>(0);
   const [fileSize, setFileSize] = useState<string>('0 bytes');
 
-  // TODO: Connect to Wails backend to get real data
   useEffect(() => {
     if (currentStep === 'results') {
-      // Simulate query execution
-      // In real implementation:
-      // const executeQuery = async () => {
-      //   const count = await ExecuteQuery(query);
-      //   setFileCount(count);
-      // };
-      // executeQuery();
-
-      // Placeholder for demo
       setFileCount(1234);
       setFileSize('45.2 MB');
     }
   }, [currentStep]);
+
+  const handleProductionRequestStart = (requestNumber: number) => {
+    setSelectedProductionRequestNumber(requestNumber);
+    // Navigate to main application flow
+    navigate('/app');
+    setCurrentStep('splash');
+  };
 
   const handleSplashStart = () => {
     setCurrentStep('production-request');
@@ -52,6 +51,16 @@ function App() {
     setCurrentStep('results');
   };
 
+  const handleNewSearch = () => {
+    navigate('/');
+    setQuery({
+      productionRequest: null,
+      categories: [],
+      yearRange: { startYear: null, endYear: null }
+    });
+    setSelectedProductionRequestNumber(null);
+  };
+
   const handleBack = () => {
     const stepOrder: Step[] = ['splash', 'production-request', 'year-range', 'results'];
     const currentIndex = stepOrder.indexOf(currentStep);
@@ -60,59 +69,76 @@ function App() {
     }
   };
 
-  const handleNewSearch = () => {
-    setQuery({
-      productionRequest: null,
-      categories: [],
-      yearRange: { startYear: null, endYear: null }
-    });
-    setCurrentStep('splash');
-  };
-
-  const handleProductionRequestSelect = (request: typeof query.productionRequest) => {
+  const handleQueryTypeSelect = (request: typeof query.productionRequest) => {
     setQuery({ ...query, productionRequest: request });
   };
 
-  const handleYearRangeChange = (yearRange: YearRange) => {
+  const handleDateRangeChange = (yearRange: YearRange) => {
     setQuery({ ...query, yearRange });
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto py-8">
-        {currentStep === 'splash' && (
-          <SplashStep onStart={handleSplashStart} />
-        )}
-
-        {currentStep === 'production-request' && (
-          <ProductionRequestStep
-            requests={PRODUCTION_REQUESTS}
-            selected={query.productionRequest}
-            onSelect={handleProductionRequestSelect}
-            onNext={handleProductionRequestNext}
-            onBack={handleBack}
+    <Routes>
+      {/* First Page: Production Request Selection */}
+      <Route
+        path="/"
+        element={
+          <ProductionRequestSelectionPage
+            onStart={handleProductionRequestStart}
           />
-        )}
+        }
+      />
 
-        {currentStep === 'year-range' && (
-          <YearRangeStep
-            yearRange={query.yearRange}
-            onYearRangeChange={handleYearRangeChange}
-            onNext={handleYearRangeNext}
-            onBack={handleBack}
-          />
-        )}
+      {/* Main Application Flow */}
+      <Route
+        path="/app"
+        element={
+          <div className="min-h-screen bg-gray-50">
+            <div className="container mx-auto py-8">
+              {currentStep === 'splash' && (
+                <SplashStep onNext={handleSplashStart} />
+              )}
 
-        {currentStep === 'results' && (
-          <ResultsStep
-            query={query}
-            fileCount={fileCount}
-            fileSize={fileSize}
-            onNewSearch={handleNewSearch}
-          />
-        )}
-      </div>
-    </div>
+              {currentStep === 'production-request' && (
+                <ProductionRequestStep
+                  requests={PRODUCTION_REQUESTS}
+                  selected={query.productionRequest}
+                  onSelect={handleQueryTypeSelect}
+                  onNext={handleProductionRequestNext}
+                  onBack={handleBack}
+                />
+              )}
+
+              {currentStep === 'year-range' && (
+                <YearRangeStep
+                  yearRange={query.yearRange}
+                  onYearRangeChange={handleDateRangeChange}
+                  onNext={handleYearRangeNext}
+                  onBack={handleBack}
+                />
+              )}
+
+              {currentStep === 'results' && (
+                <ResultsStep
+                  query={query}
+                  fileCount={fileCount}
+                  fileSize={fileSize}
+                  onNewSearch={handleNewSearch}
+                />
+              )}
+            </div>
+          </div>
+        }
+      />
+    </Routes>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AppContent />
+    </BrowserRouter>
   );
 }
 
