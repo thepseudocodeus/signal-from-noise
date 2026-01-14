@@ -3,10 +3,12 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
+
+	"signal-from-noise/assert"
+	"signal-from-noise/logging"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -50,42 +52,79 @@ type DB struct {
 }
 
 // NewDB creates a new database connection
+// Assumption: dbPath must be a valid path string (can be empty for in-memory)
 func NewDB(dbPath string) (*DB, error) {
-	// Ensure directory exists
+	op := logging.StartOperation("NewDB", map[string]interface{}{
+		"db_path": dbPath,
+	})
+	defer op.EndOperation()
+
+	// ASSUMPTION: Directory path must be valid for file operations
+	// If this fails, we cannot create the database file
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
+		logging.LogError("NewDB", err, map[string]interface{}{
+			"operation": "create_directory",
+			"path":      dir,
+		})
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
+	// ASSUMPTION: SQLite driver is available and can open connections
+	// If this fails, the database system is not properly configured
 	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL")
 	if err != nil {
+		logging.LogError("NewDB", err, map[string]interface{}{
+			"operation": "open_database",
+			"path":      dbPath,
+		})
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Test connection
+	// ASSUMPTION: Database connection is alive and responsive
+	// If ping fails, the database file is corrupted or inaccessible
 	if err := db.Ping(); err != nil {
+		logging.LogError("NewDB", err, map[string]interface{}{
+			"operation": "ping_database",
+		})
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	database := &DB{db: db}
 
-	// Initialize schema
+	// ASSUMPTION: Schema can be initialized on this database
+	// If this fails, the database structure is invalid
 	if err := database.initSchema(); err != nil {
+		logging.LogError("NewDB", err, map[string]interface{}{
+			"operation": "init_schema",
+		})
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
 	// Check if we need to seed data
+	// ASSUMPTION: We can query the database to check if it's empty
 	count, err := database.getFileCount()
 	if err != nil {
+		logging.LogError("NewDB", err, map[string]interface{}{
+			"operation": "check_file_count",
+		})
 		return nil, fmt.Errorf("failed to check file count: %w", err)
 	}
 
 	if count == 0 {
-		log.Println("Database is empty, seeding mock data...")
+		logging.LogCheckpoint("NewDB", map[string]interface{}{
+			"action": "seeding_mock_data",
+			"reason": "database_empty",
+		})
 		if err := database.SeedMockData(); err != nil {
+			logging.LogError("NewDB", err, map[string]interface{}{
+				"operation": "seed_mock_data",
+			})
 			return nil, fmt.Errorf("failed to seed mock data: %w", err)
 		}
-		log.Println("Mock data seeded successfully")
+		logging.LogResult("SeedMockData", 0, map[string]interface{}{
+			"status": "success",
+		})
 	}
 
 	return database, nil
@@ -138,8 +177,33 @@ func (d *DB) getFileCount() (int, error) {
 }
 
 // SearchFiles searches for files based on filters
+// Assumption: Database connection is valid and queries can execute
+// Assumption: Filters contain valid values (dates are valid, categories are valid strings)
 func (d *DB) SearchFiles(filters FileFilters) (*FileResult, error) {
-	log.Printf("SearchFiles called with filters: %+v", filters)
+	op := logging.StartOperation("SearchFiles", map[string]interface{}{
+		"date_start":         filters.DateStart,
+		"date_end":           filters.DateEnd,
+		"categories":         filters.Categories,
+		"exclude_privileged": filters.ExcludePrivileged,
+		"page":               filters.Page,
+		"page_size":          filters.PageSize,
+	})
+	defer op.EndOperation()
+
+	// ASSUMPTION: Database connection exists and is valid
+	// If db is nil, the database was not properly initialized
+	assert.ThatNotNil(d.db, "database connection must exist for queries to execute")
+
+	// ASSUMPTION: Page number must be positive for pagination to work correctly
+	// Negative or zero pages would cause incorrect offset calculations
+	if filters.Page < 1 {
+		filters.Page = 1
+	}
+	// ASSUMPTION: Page size must be positive to return results
+	// Zero or negative page size would return no results or cause errors
+	if filters.PageSize < 1 {
+		filters.PageSize = 50
+	}
 
 	// Build WHERE clause
 	whereClause := "1=1"
@@ -174,26 +238,52 @@ func (d *DB) SearchFiles(filters FileFilters) (*FileResult, error) {
 	}
 
 	// Get total count
+	// ASSUMPTION: SQL query will execute successfully and return a count
+	// If this fails, the database schema or query structure is invalid
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM files WHERE %s", whereClause)
+	logging.LogQuery(countQuery, map[string]interface{}{
+		"args_count": len(args),
+		"filters":    whereClause,
+	})
+
 	var totalCount int
 	err := d.db.QueryRow(countQuery, args...).Scan(&totalCount)
 	if err != nil {
+		logging.LogError("SearchFiles", err, map[string]interface{}{
+			"operation": "count_query",
+			"query":     countQuery,
+		})
 		return nil, fmt.Errorf("failed to get file count: %w", err)
 	}
 
-	log.Printf("Total files matching filters: %d", totalCount)
+	// ASSUMPTION: Count must be non-negative (database constraint)
+	// Negative counts indicate data corruption or query error
+	assert.That(totalCount >= 0, "file count must be non-negative (database integrity check)")
+
+	logging.LogResult("SearchFiles", totalCount, map[string]interface{}{
+		"filters_applied": len(filters.Categories),
+	})
 
 	// Calculate pagination
-	if filters.Page < 1 {
-		filters.Page = 1
-	}
-	if filters.PageSize < 1 {
-		filters.PageSize = 50
-	}
+	// ASSUMPTION: Offset calculation is correct for pagination
+	// Offset = (page - 1) * page_size ensures we skip the right number of records
 	offset := (filters.Page - 1) * filters.PageSize
 	totalPages := (totalCount + filters.PageSize - 1) / filters.PageSize
 
+	// ASSUMPTION: Offset must be non-negative for SQL LIMIT/OFFSET to work
+	// Negative offset would cause SQL error
+	assert.That(offset >= 0, "offset must be non-negative for SQL pagination to work")
+
+	logging.LogCheckpoint("SearchFiles", map[string]interface{}{
+		"total_count":  totalCount,
+		"total_pages":  totalPages,
+		"current_page": filters.Page,
+		"offset":       offset,
+	})
+
 	// Get files
+	// ASSUMPTION: SQL query structure matches database schema
+	// Column names must exist in the files table
 	query := fmt.Sprintf(`
 		SELECT id, path, directory, category, date, size, privileged, duplicate_hash, file_name
 		FROM files
@@ -203,9 +293,17 @@ func (d *DB) SearchFiles(filters FileFilters) (*FileResult, error) {
 	`, whereClause)
 
 	args = append(args, filters.PageSize, offset)
+	logging.LogQuery(query, map[string]interface{}{
+		"limit":  filters.PageSize,
+		"offset": offset,
+	})
 
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
+		logging.LogError("SearchFiles", err, map[string]interface{}{
+			"operation": "query_files",
+			"query":     query,
+		})
 		return nil, fmt.Errorf("failed to query files: %w", err)
 	}
 	defer rows.Close()
@@ -214,6 +312,9 @@ func (d *DB) SearchFiles(filters FileFilters) (*FileResult, error) {
 	for rows.Next() {
 		var f File
 		var dateStr string
+		
+		// ASSUMPTION: Row structure matches SELECT statement
+		// All columns must be scannable into the File struct
 		err := rows.Scan(
 			&f.ID,
 			&f.Path,
@@ -226,22 +327,47 @@ func (d *DB) SearchFiles(filters FileFilters) (*FileResult, error) {
 			&f.FileName,
 		)
 		if err != nil {
+			logging.LogError("SearchFiles", err, map[string]interface{}{
+				"operation": "scan_row",
+			})
 			return nil, fmt.Errorf("failed to scan file: %w", err)
 		}
 
+		// ASSUMPTION: Date string is in RFC3339 format as stored
+		// If parsing fails, the database contains invalid date data
 		f.Date, err = time.Parse(time.RFC3339, dateStr)
 		if err != nil {
+			logging.LogError("SearchFiles", err, map[string]interface{}{
+				"operation": "parse_date",
+				"date_str":  dateStr,
+			})
 			return nil, fmt.Errorf("failed to parse date: %w", err)
 		}
+
+		// ASSUMPTION: File ID must be positive (database constraint)
+		// Zero or negative IDs indicate data corruption
+		assert.That(f.ID > 0, "file ID must be positive (database integrity check)")
 
 		files = append(files, f)
 	}
 
 	if err := rows.Err(); err != nil {
+		logging.LogError("SearchFiles", err, map[string]interface{}{
+			"operation": "iterate_rows",
+		})
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
 
-	log.Printf("Returning %d files (page %d of %d)", len(files), filters.Page, totalPages)
+	// ASSUMPTION: Number of files returned should not exceed page size
+	// More files than page size indicates pagination logic error
+	assert.That(len(files) <= filters.PageSize, "returned files must not exceed page size (pagination logic check)")
+
+	op.EndOperationWithResult(map[string]interface{}{
+		"files_returned": len(files),
+		"total_count":    totalCount,
+		"page":           filters.Page,
+		"total_pages":    totalPages,
+	})
 
 	return &FileResult{
 		Files:      files,

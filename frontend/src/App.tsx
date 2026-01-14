@@ -1,50 +1,70 @@
-import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
-import { QueryState, PRODUCTION_REQUESTS, YearRange, DataCategory, DateRange } from './types/query';
-import { ProductionRequestSelectionPage } from './components/pages/ProductionRequestSelectionPage';
-import { SplashStep } from './components/steps/SplashStep';
-import { ProductionRequestStep } from './components/steps/ProductionRequestStep';
-import { CategoryStep } from './components/steps/CategoryStep';
-import { DateRangeStep } from './components/steps/DateRangeStep';
-import { FileSelectionStep } from './components/steps/FileSelectionStep';
+import { useState } from "react";
+import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { ProductionRequestSelectionPage } from "./components/pages/ProductionRequestSelectionPage";
+import { CategoryStep } from "./components/steps/CategoryStep";
+import { DateRangeStep } from "./components/steps/DateRangeStep";
+import { FileSelectionStep } from "./components/steps/FileSelectionStep";
+import { ProductionRequestStep } from "./components/steps/ProductionRequestStep";
+import { SplashStep } from "./components/steps/SplashStep";
+import {
+  DataCategory,
+  DateRange,
+  PRODUCTION_REQUESTS,
+  QueryState,
+} from "./types/query";
 
-type Step = 'splash' | 'production-request' | 'category' | 'date-range' | 'file-selection';
+type Step =
+  | "splash"
+  | "production-request"
+  | "category"
+  | "date-range"
+  | "file-selection";
 
 function AppContent() {
   const navigate = useNavigate();
-  const [currentStep, setCurrentStep] = useState<Step>('splash');
-  const [selectedProductionRequestNumber, setSelectedProductionRequestNumber] = useState<number | null>(null);
+  const [currentStep, setCurrentStep] = useState<Step>("splash");
+  const [selectedProductionRequestNumber, setSelectedProductionRequestNumber] =
+    useState<number | null>(null);
   const [query, setQuery] = useState<QueryState>({
     productionRequest: null,
     categories: [],
     yearRange: {
       startYear: null,
-      endYear: null
+      endYear: null,
     },
-    dateRange: null
+    dateRange: null,
   });
 
   const handleProductionRequestStart = (requestNumber: number) => {
     setSelectedProductionRequestNumber(requestNumber);
-    // Navigate to main application flow
-    navigate('/app');
-    setCurrentStep('splash');
+    // Find the production request object from the number (1-20 maps to PR-001 to PR-020)
+    const selectedRequest = PRODUCTION_REQUESTS[requestNumber - 1];
+    if (selectedRequest) {
+      setQuery({ ...query, productionRequest: selectedRequest });
+      // Skip splash and production request steps since we already have a selection
+      navigate("/app");
+      setCurrentStep("category");
+    } else {
+      // Fallback: navigate to splash if request not found
+      navigate("/app");
+      setCurrentStep("splash");
+    }
   };
 
   const handleSplashStart = () => {
-    setCurrentStep('production-request');
+    setCurrentStep("production-request");
   };
 
   const handleProductionRequestNext = () => {
-    setCurrentStep('category');
+    setCurrentStep("category");
   };
 
   const handleCategoryNext = () => {
-    setCurrentStep('date-range');
+    setCurrentStep("date-range");
   };
 
   const handleDateRangeNext = () => {
-    setCurrentStep('file-selection');
+    setCurrentStep("file-selection");
   };
 
   const handleFileSelectionNext = (selectedFileIDs: number[]) => {
@@ -53,18 +73,24 @@ function AppContent() {
   };
 
   const handleNewSearch = () => {
-    navigate('/');
+    navigate("/");
     setQuery({
       productionRequest: null,
       categories: [],
       yearRange: { startYear: null, endYear: null },
-      dateRange: null
+      dateRange: null,
     });
     setSelectedProductionRequestNumber(null);
   };
 
   const handleBack = () => {
-    const stepOrder: Step[] = ['splash', 'production-request', 'category', 'date-range', 'file-selection'];
+    const stepOrder: Step[] = [
+      "splash",
+      "production-request",
+      "category",
+      "date-range",
+      "file-selection",
+    ];
     const currentIndex = stepOrder.indexOf(currentStep);
     if (currentIndex > 0) {
       setCurrentStep(stepOrder[currentIndex - 1]);
@@ -81,7 +107,7 @@ function AppContent() {
 
   const handleCategoryToggle = (category: DataCategory) => {
     const categories = query.categories.includes(category)
-      ? query.categories.filter(c => c !== category)
+      ? query.categories.filter((c) => c !== category)
       : [...query.categories, category];
     setQuery({ ...query, categories });
   };
@@ -104,11 +130,11 @@ function AppContent() {
         element={
           <div className="min-h-screen bg-gray-50">
             <div className="container mx-auto py-8">
-              {currentStep === 'splash' && (
+              {currentStep === "splash" && (
                 <SplashStep onNext={handleSplashStart} />
               )}
 
-              {currentStep === 'production-request' && (
+              {currentStep === "production-request" && (
                 <ProductionRequestStep
                   requests={PRODUCTION_REQUESTS}
                   selected={query.productionRequest}
@@ -118,9 +144,9 @@ function AppContent() {
                 />
               )}
 
-              {currentStep === 'category' && (
+              {currentStep === "category" && (
                 <CategoryStep
-                  categories={['Email', 'Claims', 'Other'] as DataCategory[]}
+                  categories={["Email", "Claims", "Other"] as DataCategory[]}
                   selected={query.categories}
                   onToggle={handleCategoryToggle}
                   onNext={handleCategoryNext}
@@ -128,7 +154,7 @@ function AppContent() {
                 />
               )}
 
-              {currentStep === 'date-range' && (
+              {currentStep === "date-range" && (
                 <DateRangeStep
                   dateRange={query.dateRange || { start: null, end: null }}
                   onDateRangeChange={handleDateRangeChange}
@@ -137,7 +163,7 @@ function AppContent() {
                 />
               )}
 
-              {currentStep === 'file-selection' && (
+              {currentStep === "file-selection" && (
                 <FileSelectionStep
                   query={query}
                   onNext={handleFileSelectionNext}

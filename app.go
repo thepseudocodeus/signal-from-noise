@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"signal-from-noise/assert"
 	"signal-from-noise/config"
 	"signal-from-noise/database"
 	"signal-from-noise/datalake"
+	"signal-from-noise/logging"
 )
 
 // App struct
@@ -180,18 +182,41 @@ type FileInfo struct {
 }
 
 // SearchFiles searches for files based on the provided filters
+// Assumption: Database is initialized and accessible
+// Assumption: Request contains valid filter parameters
 func (a *App) SearchFiles(req FileSearchRequest) (*FileSearchResult, error) {
-	fmt.Printf("SearchFiles called: %+v\n", req)
+	op := logging.StartOperation("SearchFiles", map[string]interface{}{
+		"production_request_id": req.ProductionRequestID,
+		"date_start":            req.DateStart,
+		"date_end":              req.DateEnd,
+		"categories":             req.Categories,
+		"exclude_privileged":    req.ExcludePrivileged,
+		"page":                  req.Page,
+		"page_size":             req.PageSize,
+	})
+	defer op.EndOperation()
 
-	if a.db == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
+	// ASSUMPTION: Database must be initialized before queries can execute
+	// If db is nil, the application startup failed or database initialization was skipped
+	assert.ThatNotNil(a.db, "database must be initialized for file searches to work")
+
+	logging.LogAssumption("Request contains valid filter parameters", map[string]interface{}{
+		"has_date_start": req.DateStart != "",
+		"has_date_end":   req.DateEnd != "",
+		"category_count": len(req.Categories),
+	})
 
 	// Parse dates
+	// ASSUMPTION: Date strings are in RFC3339 format if provided
+	// If parsing fails, the frontend sent invalid date format
 	var dateStart, dateEnd *time.Time
 	if req.DateStart != "" {
 		t, err := time.Parse(time.RFC3339, req.DateStart)
 		if err != nil {
+			logging.LogError("SearchFiles", err, map[string]interface{}{
+				"operation":  "parse_date_start",
+				"date_string": req.DateStart,
+			})
 			return nil, fmt.Errorf("invalid date_start format: %w", err)
 		}
 		dateStart = &t
@@ -199,12 +224,24 @@ func (a *App) SearchFiles(req FileSearchRequest) (*FileSearchResult, error) {
 	if req.DateEnd != "" {
 		t, err := time.Parse(time.RFC3339, req.DateEnd)
 		if err != nil {
+			logging.LogError("SearchFiles", err, map[string]interface{}{
+				"operation":  "parse_date_end",
+				"date_string": req.DateEnd,
+			})
 			return nil, fmt.Errorf("invalid date_end format: %w", err)
 		}
 		dateEnd = &t
 	}
 
+	// ASSUMPTION: If both dates provided, start must be before or equal to end
+	// Invalid date ranges would return no results or cause logical errors
+	if dateStart != nil && dateEnd != nil {
+		assert.That(!dateEnd.Before(*dateStart), "date range must be valid: start date must be before or equal to end date")
+	}
+
 	// Normalize categories (frontend uses "Email", "Claims", "Other", backend uses lowercase)
+	// ASSUMPTION: Frontend sends valid category names that can be mapped
+	// Unknown categories are passed through, but may not match database values
 	categories := make([]string, len(req.Categories))
 	for i, cat := range req.Categories {
 		switch cat {
@@ -220,12 +257,19 @@ func (a *App) SearchFiles(req FileSearchRequest) (*FileSearchResult, error) {
 	}
 
 	// Set defaults
+	// ASSUMPTION: Page and page size must be positive for pagination
+	// Zero or negative values would cause incorrect SQL queries
 	if req.Page < 1 {
 		req.Page = 1
 	}
 	if req.PageSize < 1 {
 		req.PageSize = 50
 	}
+
+	logging.LogInvariant("pagination_parameters", map[string]interface{}{
+		"page":      req.Page,
+		"page_size": req.PageSize,
+	})
 
 	// Search database
 	filters := database.FileFilters{
@@ -240,10 +284,19 @@ func (a *App) SearchFiles(req FileSearchRequest) (*FileSearchResult, error) {
 
 	result, err := a.db.SearchFiles(filters)
 	if err != nil {
+		logging.LogError("SearchFiles", err, map[string]interface{}{
+			"operation": "database_search",
+		})
 		return nil, fmt.Errorf("database search failed: %w", err)
 	}
 
+	// ASSUMPTION: Database result is valid and contains files array
+	// If result is nil, the database query failed unexpectedly
+	assert.ThatNotNil(result, "database search must return a valid result")
+
 	// Convert to frontend format
+	// ASSUMPTION: All file dates can be formatted as RFC3339
+	// If formatting fails, the date structure is invalid
 	files := make([]FileInfo, len(result.Files))
 	for i, f := range result.Files {
 		files[i] = FileInfo{
@@ -259,7 +312,16 @@ func (a *App) SearchFiles(req FileSearchRequest) (*FileSearchResult, error) {
 		}
 	}
 
-	fmt.Printf("SearchFiles returning %d files (page %d of %d)\n", len(files), result.Page, result.TotalPages)
+	// ASSUMPTION: Result structure is consistent (files count matches result structure)
+	// Mismatch indicates data transformation error
+	assert.That(len(files) == len(result.Files), "converted files count must match database result count")
+
+	op.EndOperationWithResult(map[string]interface{}{
+		"files_returned": len(files),
+		"total_count":    result.TotalCount,
+		"page":           result.Page,
+		"total_pages":    result.TotalPages,
+	})
 
 	return &FileSearchResult{
 		Files:      files,
@@ -284,42 +346,73 @@ type CreateZipResponse struct {
 }
 
 // CreateZip creates a zip file containing the selected files
+// Assumption: Database is initialized and can retrieve file information
+// Assumption: At least one file ID is provided
+// Assumption: Production request ID is valid
 func (a *App) CreateZip(req CreateZipRequest) (*CreateZipResponse, error) {
-	fmt.Printf("CreateZip called: production_request=%s, file_count=%d\n", req.ProductionRequestID, len(req.FileIDs))
+	op := logging.StartOperation("CreateZip", map[string]interface{}{
+		"production_request_id": req.ProductionRequestID,
+		"file_count":           len(req.FileIDs),
+	})
+	defer op.EndOperation()
 
-	if a.db == nil {
-		return &CreateZipResponse{
-			Success: false,
-			Message: "Database not initialized",
-		}, fmt.Errorf("database not initialized")
-	}
+	// ASSUMPTION: Database must be initialized to retrieve file information
+	// If db is nil, we cannot look up files to include in zip
+	assert.ThatNotNil(a.db, "database must be initialized to create zip files")
 
-	if len(req.FileIDs) == 0 {
-		return &CreateZipResponse{
-			Success: false,
-			Message: "No files selected",
-		}, fmt.Errorf("no files selected")
-	}
+	// ASSUMPTION: At least one file must be selected for zip creation
+	// Empty zip files serve no purpose and indicate user error
+	assert.That(len(req.FileIDs) > 0, "at least one file must be selected for zip creation")
+
+	// ASSUMPTION: Production request ID must be provided for file naming
+	// Empty ID would create incorrectly named zip files
+	assert.That(req.ProductionRequestID != "", "production request ID must be provided for zip file naming")
 
 	// Create output directory in temp
+	// ASSUMPTION: System temp directory is writable
+	// If this fails, the application cannot create output files
 	outputDir := filepath.Join(os.TempDir(), "signal-from-noise-zips")
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		logging.LogError("CreateZip", err, map[string]interface{}{
+			"operation":   "create_output_directory",
+			"output_dir":  outputDir,
+		})
 		return &CreateZipResponse{
 			Success: false,
 			Message: fmt.Sprintf("Failed to create output directory: %v", err),
 		}, fmt.Errorf("failed to create output directory: %w", err)
 	}
 
+	// ASSUMPTION: Output directory exists and is writable
+	// If directory creation succeeded, we should be able to write files
+	logging.LogCheckpoint("CreateZip", map[string]interface{}{
+		"output_directory": outputDir,
+		"files_to_zip":     len(req.FileIDs),
+	})
+
 	// Create zip file
+	// ASSUMPTION: All file IDs exist in database and can be retrieved
+	// If files don't exist, zip creation will fail
 	zipPath, err := a.db.CreateZipFile(req.ProductionRequestID, req.FileIDs, outputDir)
 	if err != nil {
+		logging.LogError("CreateZip", err, map[string]interface{}{
+			"operation": "create_zip_file",
+		})
 		return &CreateZipResponse{
 			Success: false,
 			Message: fmt.Sprintf("Failed to create zip: %v", err),
 		}, fmt.Errorf("failed to create zip: %w", err)
 	}
 
-	fmt.Printf("Zip file created successfully: %s\n", zipPath)
+	// ASSUMPTION: Zip file path is valid and file exists after creation
+	// If file doesn't exist, creation silently failed
+	assert.That(zipPath != "", "zip file path must be non-empty after creation")
+
+	op.EndOperationWithResult(map[string]interface{}{
+		"zip_path":    zipPath,
+		"file_count":  len(req.FileIDs),
+		"success":     true,
+	})
 
 	return &CreateZipResponse{
 		ZipPath: zipPath,
