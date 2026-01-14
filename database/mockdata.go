@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"math/rand"
-	"strings"
 	"time"
 
 	"signal-from-noise/logging"
@@ -46,18 +45,16 @@ func (d *DB) SeedMockData() error {
 		"Status Report", "Client Communication", "Legal Matter", "Invoice",
 		"Proposal", "Follow-up", "Urgent Action", "Documentation",
 	}
-	
+
 	internalEmails := []string{
 		"john.doe@company.com", "jane.smith@company.com", "bob.jones@company.com",
 		"alice.brown@company.com", "charlie.wilson@company.com", "diana.miller@company.com",
 	}
-	
+
 	externalEmails := []string{
 		"client1@external.com", "vendor@supplier.com", "partner@business.com",
 		"customer@client.com", "consultant@firm.com", "lawyer@legal.com",
 	}
-	
-	sentiments := []string{"positive", "negative", "neutral", "unknown"}
 
 	// Create directories
 	directories := []struct {
@@ -126,12 +123,12 @@ func (d *DB) SeedMockData() error {
 			// Non-email files have NULL for these fields
 			var subject, fromEmail, toEmail, sentiment, topic string
 			var isInternal int
-			
+
 			if dir.category == "email" {
 				// Generate subject with topic
 				topic = topics[rand.Intn(len(topics))]
 				subject = fmt.Sprintf("%s - %s", topic, fmt.Sprintf("Email %d", fileCount))
-				
+
 				// Determine if internal or external (70% internal, 30% external)
 				isInternal = 0
 				if rand.Float32() < 0.7 {
@@ -152,7 +149,7 @@ func (d *DB) SeedMockData() error {
 						toEmail = internalEmails[rand.Intn(len(internalEmails))]
 					}
 				}
-				
+
 				// Assign sentiment (weighted: 40% neutral, 30% positive, 20% negative, 10% unknown)
 				sentimentRand := rand.Float32()
 				switch {
@@ -230,24 +227,24 @@ func (d *DB) SeedMockData() error {
 		"internal_emails":      len(internalEmails),
 		"external_emails":     len(externalEmails),
 	})
-	
+
 	op.EndOperationWithResult(map[string]interface{}{
 		"files_seeded":         fileCount,
 		"production_requests": len(productionRequests),
 	})
-	
+
 	logging.LogResult("SeedMockData", fileCount, map[string]interface{}{
 		"production_requests": len(productionRequests),
 		"topics_available":     len(topics),
 		"internal_emails":     len(internalEmails),
 		"external_emails":     len(externalEmails),
 	})
-	
+
 	op.EndOperationWithResult(map[string]interface{}{
 		"files_seeded":        fileCount,
 		"production_requests": len(productionRequests),
 	})
-	
+
 	fmt.Printf("Seeded %d files and %d production requests\n", fileCount, len(productionRequests))
 	return nil
 }
