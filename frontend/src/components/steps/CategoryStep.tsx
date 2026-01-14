@@ -1,11 +1,11 @@
-import { Button, Checkbox, Label } from 'flowbite-react';
-import { Category } from '../../types/query';
-import { ProgressIndicator } from '../shared/ProgressIndicator';
+import { Button, Checkbox, Label } from "flowbite-react";
+import { DataCategory } from "../../types/query";
+import { ProgressIndicator } from "../shared/ProgressIndicator";
 
 interface CategoryStepProps {
-  categories: Category[];
-  selected: Category[];
-  onToggle: (category: Category) => void;
+  categories: DataCategory[];
+  selected: DataCategory[];
+  onToggle: (category: DataCategory) => void;
   onNext: () => void;
   onBack: () => void;
   minSelection?: number;
@@ -17,14 +17,14 @@ export function CategoryStep({
   onToggle,
   onNext,
   onBack,
-  minSelection = 1
+  minSelection = 1,
 }: CategoryStepProps) {
   const isValid = selected.length >= minSelection;
 
-  const categoryLabels: Record<Category, string> = {
+  const categoryLabels: Record<DataCategory, string> = {
     Claims: "Claims",
-    Emails: "Emails",
-    Other: "Other"
+    Email: "Email",
+    Other: "Other",
   };
 
   return (
@@ -36,7 +36,7 @@ export function CategoryStep({
           Select categories
         </h2>
         <p className="text-gray-600">
-          Choose at least {minSelection} category{minSelection > 1 ? 's' : ''}
+          Choose at least {minSelection} category{minSelection > 1 ? "s" : ""}
         </p>
       </div>
 
@@ -66,23 +66,17 @@ export function CategoryStep({
       {!isValid && (
         <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
           <p className="text-yellow-700 text-sm">
-            Please select at least {minSelection} category{minSelection > 1 ? 's' : ''}
+            Please select at least {minSelection} category
+            {minSelection > 1 ? "s" : ""}
           </p>
         </div>
       )}
 
       <div className="flex justify-between">
-        <Button
-          color="gray"
-          onClick={onBack}
-        >
+        <Button color="gray" onClick={onBack}>
           Back
         </Button>
-        <Button
-          onClick={onNext}
-          disabled={!isValid}
-          className="px-6"
-        >
+        <Button onClick={onNext} disabled={!isValid} className="px-6">
           Next
         </Button>
       </div>

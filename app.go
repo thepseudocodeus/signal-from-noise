@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"time"
 
 	"signal-from-noise/config"
+	"signal-from-noise/database"
 	"signal-from-noise/datalake"
 )
 
@@ -14,6 +17,7 @@ type App struct {
 	ctx            context.Context
 	config         *config.Config
 	dataLakeService *datalake.DataLakeService
+	db             *database.DB
 }
 
 // NewApp creates a new App application struct
@@ -36,6 +40,19 @@ func (a *App) startup(ctx context.Context) {
 		if cfg != nil {
 			a.dataLakeService = datalake.NewDataLakeService(cfg.GetDataLakePath())
 		}
+	}
+
+	// Initialize database
+	dbPath := filepath.Join(os.TempDir(), "signal-from-noise.db")
+	fmt.Printf("Initializing database at: %s\n", dbPath)
+	
+	db, err := database.NewDB(dbPath)
+	if err != nil {
+		fmt.Printf("Error initializing database: %v\n", err)
+		// Continue without database for now
+	} else {
+		a.db = db
+		fmt.Println("Database initialized successfully")
 	}
 }
 
@@ -127,4 +144,186 @@ func (a *App) GetDataLakePath() (string, error) {
 	}
 
 	return a.config.GetDataLakePath(), nil
+}
+
+// FileSearchRequest represents a file search request from the frontend
+type FileSearchRequest struct {
+	ProductionRequestID string   `json:"production_request_id"`
+	DateStart          string   `json:"date_start"` // ISO 8601 format
+	DateEnd            string   `json:"date_end"`   // ISO 8601 format
+	Categories         []string `json:"categories"` // "email", "claim", "other"
+	ExcludePrivileged  bool     `json:"exclude_privileged"`
+	Page               int      `json:"page"`
+	PageSize           int      `json:"page_size"`
+}
+
+// FileSearchResult represents the result of a file search
+type FileSearchResult struct {
+	Files      []FileInfo `json:"files"`
+	TotalCount int        `json:"total_count"`
+	Page       int        `json:"page"`
+	PageSize   int        `json:"page_size"`
+	TotalPages int        `json:"total_pages"`
+}
+
+// FileInfo represents file information returned to frontend
+type FileInfo struct {
+	ID            int64  `json:"id"`
+	Path          string `json:"path"`
+	Directory     string `json:"directory"`
+	Category      string `json:"category"`
+	Date          string `json:"date"` // ISO 8601 format
+	Size          int64  `json:"size"`
+	Privileged    bool   `json:"privileged"`
+	DuplicateHash string `json:"duplicate_hash"`
+	FileName      string `json:"file_name"`
+}
+
+// SearchFiles searches for files based on the provided filters
+func (a *App) SearchFiles(req FileSearchRequest) (*FileSearchResult, error) {
+	fmt.Printf("SearchFiles called: %+v\n", req)
+
+	if a.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Parse dates
+	var dateStart, dateEnd *time.Time
+	if req.DateStart != "" {
+		t, err := time.Parse(time.RFC3339, req.DateStart)
+		if err != nil {
+			return nil, fmt.Errorf("invalid date_start format: %w", err)
+		}
+		dateStart = &t
+	}
+	if req.DateEnd != "" {
+		t, err := time.Parse(time.RFC3339, req.DateEnd)
+		if err != nil {
+			return nil, fmt.Errorf("invalid date_end format: %w", err)
+		}
+		dateEnd = &t
+	}
+
+	// Normalize categories (frontend uses "Email", "Claims", "Other", backend uses lowercase)
+	categories := make([]string, len(req.Categories))
+	for i, cat := range req.Categories {
+		switch cat {
+		case "Email":
+			categories[i] = "email"
+		case "Claims":
+			categories[i] = "claim"
+		case "Other":
+			categories[i] = "other"
+		default:
+			categories[i] = cat
+		}
+	}
+
+	// Set defaults
+	if req.Page < 1 {
+		req.Page = 1
+	}
+	if req.PageSize < 1 {
+		req.PageSize = 50
+	}
+
+	// Search database
+	filters := database.FileFilters{
+		ProductionRequestID: req.ProductionRequestID,
+		DateStart:          dateStart,
+		DateEnd:            dateEnd,
+		Categories:         categories,
+		ExcludePrivileged:  req.ExcludePrivileged,
+		Page:               req.Page,
+		PageSize:           req.PageSize,
+	}
+
+	result, err := a.db.SearchFiles(filters)
+	if err != nil {
+		return nil, fmt.Errorf("database search failed: %w", err)
+	}
+
+	// Convert to frontend format
+	files := make([]FileInfo, len(result.Files))
+	for i, f := range result.Files {
+		files[i] = FileInfo{
+			ID:            f.ID,
+			Path:          f.Path,
+			Directory:     f.Directory,
+			Category:      f.Category,
+			Date:          f.Date.Format(time.RFC3339),
+			Size:          f.Size,
+			Privileged:    f.Privileged,
+			DuplicateHash: f.DuplicateHash,
+			FileName:      f.FileName,
+		}
+	}
+
+	fmt.Printf("SearchFiles returning %d files (page %d of %d)\n", len(files), result.Page, result.TotalPages)
+
+	return &FileSearchResult{
+		Files:      files,
+		TotalCount: result.TotalCount,
+		Page:       result.Page,
+		PageSize:   result.PageSize,
+		TotalPages: result.TotalPages,
+	}, nil
+}
+
+// CreateZipRequest represents a request to create a zip file
+type CreateZipRequest struct {
+	ProductionRequestID string  `json:"production_request_id"`
+	FileIDs            []int64 `json:"file_ids"`
+}
+
+// CreateZipResponse represents the response from zip creation
+type CreateZipResponse struct {
+	ZipPath string `json:"zip_path"`
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+// CreateZip creates a zip file containing the selected files
+func (a *App) CreateZip(req CreateZipRequest) (*CreateZipResponse, error) {
+	fmt.Printf("CreateZip called: production_request=%s, file_count=%d\n", req.ProductionRequestID, len(req.FileIDs))
+
+	if a.db == nil {
+		return &CreateZipResponse{
+			Success: false,
+			Message: "Database not initialized",
+		}, fmt.Errorf("database not initialized")
+	}
+
+	if len(req.FileIDs) == 0 {
+		return &CreateZipResponse{
+			Success: false,
+			Message: "No files selected",
+		}, fmt.Errorf("no files selected")
+	}
+
+	// Create output directory in temp
+	outputDir := filepath.Join(os.TempDir(), "signal-from-noise-zips")
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return &CreateZipResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to create output directory: %v", err),
+		}, fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Create zip file
+	zipPath, err := a.db.CreateZipFile(req.ProductionRequestID, req.FileIDs, outputDir)
+	if err != nil {
+		return &CreateZipResponse{
+			Success: false,
+			Message: fmt.Sprintf("Failed to create zip: %v", err),
+		}, fmt.Errorf("failed to create zip: %w", err)
+	}
+
+	fmt.Printf("Zip file created successfully: %s\n", zipPath)
+
+	return &CreateZipResponse{
+		ZipPath: zipPath,
+		Success: true,
+		Message: fmt.Sprintf("Zip file created: %s", zipPath),
+	}, nil
 }

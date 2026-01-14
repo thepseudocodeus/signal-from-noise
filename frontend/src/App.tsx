@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
-import { QueryState, PRODUCTION_REQUESTS, YearRange } from './types/query';
+import { QueryState, PRODUCTION_REQUESTS, YearRange, DataCategory, DateRange } from './types/query';
 import { ProductionRequestSelectionPage } from './components/pages/ProductionRequestSelectionPage';
 import { SplashStep } from './components/steps/SplashStep';
 import { ProductionRequestStep } from './components/steps/ProductionRequestStep';
-import { YearRangeStep } from './components/steps/YearRangeStep';
-import { ResultsStep } from './components/steps/ResultsStep';
+import { CategoryStep } from './components/steps/CategoryStep';
+import { DateRangeStep } from './components/steps/DateRangeStep';
+import { FileSelectionStep } from './components/steps/FileSelectionStep';
 
-type Step = 'splash' | 'production-request' | 'year-range' | 'results';
+type Step = 'splash' | 'production-request' | 'category' | 'date-range' | 'file-selection';
 
 function AppContent() {
   const navigate = useNavigate();
@@ -19,18 +20,9 @@ function AppContent() {
     yearRange: {
       startYear: null,
       endYear: null
-    }
+    },
+    dateRange: null
   });
-
-  const [fileCount, setFileCount] = useState<number>(0);
-  const [fileSize, setFileSize] = useState<string>('0 bytes');
-
-  useEffect(() => {
-    if (currentStep === 'results') {
-      setFileCount(1234);
-      setFileSize('45.2 MB');
-    }
-  }, [currentStep]);
 
   const handleProductionRequestStart = (requestNumber: number) => {
     setSelectedProductionRequestNumber(requestNumber);
@@ -44,11 +36,20 @@ function AppContent() {
   };
 
   const handleProductionRequestNext = () => {
-    setCurrentStep('year-range');
+    setCurrentStep('category');
   };
 
-  const handleYearRangeNext = () => {
-    setCurrentStep('results');
+  const handleCategoryNext = () => {
+    setCurrentStep('date-range');
+  };
+
+  const handleDateRangeNext = () => {
+    setCurrentStep('file-selection');
+  };
+
+  const handleFileSelectionNext = (selectedFileIDs: number[]) => {
+    // Zip creation is handled in FileSelectionStep
+    // This could navigate to a success page if needed
   };
 
   const handleNewSearch = () => {
@@ -56,13 +57,14 @@ function AppContent() {
     setQuery({
       productionRequest: null,
       categories: [],
-      yearRange: { startYear: null, endYear: null }
+      yearRange: { startYear: null, endYear: null },
+      dateRange: null
     });
     setSelectedProductionRequestNumber(null);
   };
 
   const handleBack = () => {
-    const stepOrder: Step[] = ['splash', 'production-request', 'year-range', 'results'];
+    const stepOrder: Step[] = ['splash', 'production-request', 'category', 'date-range', 'file-selection'];
     const currentIndex = stepOrder.indexOf(currentStep);
     if (currentIndex > 0) {
       setCurrentStep(stepOrder[currentIndex - 1]);
@@ -73,8 +75,15 @@ function AppContent() {
     setQuery({ ...query, productionRequest: request });
   };
 
-  const handleDateRangeChange = (yearRange: YearRange) => {
-    setQuery({ ...query, yearRange });
+  const handleDateRangeChange = (dateRange: DateRange) => {
+    setQuery({ ...query, dateRange });
+  };
+
+  const handleCategoryToggle = (category: DataCategory) => {
+    const categories = query.categories.includes(category)
+      ? query.categories.filter(c => c !== category)
+      : [...query.categories, category];
+    setQuery({ ...query, categories });
   };
 
   return (
@@ -109,21 +118,30 @@ function AppContent() {
                 />
               )}
 
-              {currentStep === 'year-range' && (
-                <YearRangeStep
-                  yearRange={query.yearRange}
-                  onYearRangeChange={handleDateRangeChange}
-                  onNext={handleYearRangeNext}
+              {currentStep === 'category' && (
+                <CategoryStep
+                  categories={['Email', 'Claims', 'Other'] as DataCategory[]}
+                  selected={query.categories}
+                  onToggle={handleCategoryToggle}
+                  onNext={handleCategoryNext}
                   onBack={handleBack}
                 />
               )}
 
-              {currentStep === 'results' && (
-                <ResultsStep
+              {currentStep === 'date-range' && (
+                <DateRangeStep
+                  dateRange={query.dateRange || { start: null, end: null }}
+                  onDateRangeChange={handleDateRangeChange}
+                  onNext={handleDateRangeNext}
+                  onBack={handleBack}
+                />
+              )}
+
+              {currentStep === 'file-selection' && (
+                <FileSelectionStep
                   query={query}
-                  fileCount={fileCount}
-                  fileSize={fileSize}
-                  onNewSearch={handleNewSearch}
+                  onNext={handleFileSelectionNext}
+                  onBack={handleBack}
                 />
               )}
             </div>

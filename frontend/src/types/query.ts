@@ -12,7 +12,6 @@ export interface Category {
   description: string;
 }
 
-
 export type DataCategory = "Claims" | "Email" | "Other";
 
 export interface YearRange {
@@ -29,6 +28,7 @@ export interface QueryState {
   productionRequest: ProductionRequest | null;
   categories: DataCategory[];
   yearRange: YearRange;
+  dateRange: DateRange | null;
 }
 
 // Demo production requests (will expand to 20)
