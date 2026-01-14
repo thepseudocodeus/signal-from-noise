@@ -12,6 +12,8 @@ export function GetEmailFileCount():Promise<number>;
 
 export function GetEmailPath():Promise<string>;
 
+export function GetOperationalMode():Promise<string>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function ListEmailFiles(arg1:number):Promise<Array<string>>;

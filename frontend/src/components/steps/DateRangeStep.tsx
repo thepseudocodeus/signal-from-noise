@@ -1,6 +1,6 @@
-import { Button, Datepicker, Label } from "flowbite-react";
-import { useEffect, useState } from "react";
+import { Button } from "flowbite-react";
 import { DateRange } from "../../types/query";
+import { DateRangeSelector } from "../shared/DateRangeSelector";
 import { ProgressIndicator } from "../shared/ProgressIndicator";
 
 interface DateRangeStepProps {
@@ -16,37 +16,30 @@ export function DateRangeStep({
   onNext,
   onBack,
 }: DateRangeStepProps) {
-  const [error, setError] = useState<string | null>(null);
+  // Determine min/max dates from data
+  // ASSUMPTION: Data spans reasonable range (e.g., 2020-2025)
+  // In production, these would come from actual data bounds
+  const dataMinDate = new Date(2020, 0, 1); // January 1, 2020
+  const dataMaxDate = new Date(); // Today
 
-  useEffect(() => {
-    // Validate date range
-    if (dateRange.start && dateRange.end) {
-      if (dateRange.end < dateRange.start) {
-        setError("End date must be after start date");
-      } else {
-        setError(null);
-      }
-    } else {
-      setError(null);
-    }
-  }, [dateRange]);
-
-  const isValid =
-    dateRange.start !== null && dateRange.end !== null && error === null;
-
-  const handleStartDateChange = (date: Date) => {
+  const handleStartChange = (date: Date | null) => {
     onDateRangeChange({
       ...dateRange,
       start: date,
     });
   };
 
-  const handleEndDateChange = (date: Date) => {
+  const handleEndChange = (date: Date | null) => {
     onDateRangeChange({
       ...dateRange,
       end: date,
     });
   };
+
+  // Validation: Both dates must be selected and valid
+  // ASSUMPTION: DateRangeSelector handles validation internally
+  // We just check that both dates are set
+  const isValid = dateRange.start !== null && dateRange.end !== null;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
@@ -59,38 +52,18 @@ export function DateRangeStep({
         <p className="text-gray-600">Choose the time period for your query</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <div>
-          <Label htmlFor="start-date" className="mb-2 block">
-            Start Date
-          </Label>
-          <Datepicker
-            id="start-date"
-            value={dateRange.start?.toLocaleDateString() || ""}
-            onSelectedDateChanged={handleStartDateChange}
-            maxDate={dateRange.end || new Date()}
-          />
-        </div>
-
-        <div>
-          <Label htmlFor="end-date" className="mb-2 block">
-            End Date
-          </Label>
-          <Datepicker
-            id="end-date"
-            value={dateRange.end?.toLocaleDateString() || ""}
-            onSelectedDateChanged={handleEndDateChange}
-            minDate={dateRange.start || undefined}
-            maxDate={new Date()}
-          />
-        </div>
+      <div className="mb-6">
+        <DateRangeSelector
+          minDate={dataMinDate}
+          maxDate={dataMaxDate}
+          startDate={dateRange.start}
+          endDate={dateRange.end}
+          onStartChange={handleStartChange}
+          onEndChange={handleEndChange}
+          startLabel="Start Date"
+          endLabel="End Date"
+        />
       </div>
-
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-600 text-sm">{error}</p>
-        </div>
-      )}
 
       <div className="flex justify-between">
         <Button color="gray" onClick={onBack}>

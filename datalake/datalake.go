@@ -49,6 +49,7 @@ func (d *DataLakeService) ValidateDataLake() error {
 }
 
 // DiscoverEmailFiles discovers all email files in the email final directory
+// [ ] TODO: Add logic to handle large datasets - chunking and streaming for example
 // For demo: returns file list (first N files for performance)
 func (d *DataLakeService) DiscoverEmailFiles(emailPath string, maxFiles int) ([]string, error) {
 	if emailPath == "" {
@@ -70,6 +71,7 @@ func (d *DataLakeService) DiscoverEmailFiles(emailPath string, maxFiles int) ([]
 
 		// Only process files (not directories)
 		if !info.IsDir() {
+			// [ ] TODO: Add logic to filter for email files based on file extension
 			// For demo: common email file extensions
 			ext := filepath.Ext(path)
 			if isEmailFile(ext) {

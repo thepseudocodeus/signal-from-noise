@@ -22,6 +22,10 @@ export function GetEmailPath() {
   return window['go']['main']['App']['GetEmailPath']();
 }
 
+export function GetOperationalMode() {
+  return window['go']['main']['App']['GetOperationalMode']();
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }

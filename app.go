@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"signal-from-noise/app"
 	"signal-from-noise/assert"
 	"signal-from-noise/config"
 	"signal-from-noise/database"
@@ -20,6 +21,7 @@ type App struct {
 	config         *config.Config
 	dataLakeService *datalake.DataLakeService
 	db             *database.DB
+	mode           app.Mode // Explicit mode declaration - makes system state clear
 }
 
 // NewApp creates a new App application struct
@@ -29,33 +31,85 @@ func NewApp() *App {
 
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
+// This function determines the operational mode based on available resources
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
-	// Load configuration
+	op := logging.StartOperation("startup", map[string]interface{}{
+		"action": "determining_operational_mode",
+	})
+	defer op.EndOperation()
+
+	// Step 1: Try to load data lake configuration
+	// ASSUMPTION: If config loads successfully, data lake is available
+	// If config fails, we fall back to database-only mode
 	cfg, err := config.LoadConfig()
-	if err != nil {
-		// Log error but don't fail startup (for demo, we'll handle gracefully)
-		fmt.Printf("Warning: Could not load config: %v\n", err)
-	} else {
+	hasDataLake := err == nil && cfg != nil
+
+	if hasDataLake {
 		a.config = cfg
-		if cfg != nil {
-			a.dataLakeService = datalake.NewDataLakeService(cfg.GetDataLakePath())
-		}
+		a.dataLakeService = datalake.NewDataLakeService(cfg.GetDataLakePath())
+		logging.LogCheckpoint("startup", map[string]interface{}{
+			"config_status":  "loaded",
+			"data_lake_path": cfg.GetDataLakePath(),
+		})
+	} else {
+		logging.LogCheckpoint("startup", map[string]interface{}{
+			"config_status": "not_loaded",
+			"reason":        err.Error(),
+			"note":          "data lake unavailable, using database mode",
+		})
 	}
 
-	// Initialize database
+	// Step 2: Initialize database (required for all modes)
+	// ASSUMPTION: System temp directory is writable
+	// If this fails, the application cannot store data
 	dbPath := filepath.Join(os.TempDir(), "signal-from-noise.db")
-	fmt.Printf("Initializing database at: %s\n", dbPath)
-	
+	logging.LogCheckpoint("startup", map[string]interface{}{
+		"database_path": dbPath,
+		"action":        "initializing",
+	})
+
 	db, err := database.NewDB(dbPath)
 	if err != nil {
-		fmt.Printf("Error initializing database: %v\n", err)
-		// Continue without database for now
-	} else {
-		a.db = db
-		fmt.Println("Database initialized successfully")
+		logging.LogError("startup", err, map[string]interface{}{
+			"operation":     "database_initialization",
+			"database_path": dbPath,
+		})
+		// Database is required - cannot continue without it
+		panic(fmt.Sprintf("CRITICAL: Cannot initialize database: %v", err))
 	}
+	a.db = db
+
+	// Step 3: Determine and set operational mode
+	// This makes the system's operational state explicit
+	// ASSUMPTION: Mode is determined by data lake availability
+	// Database mode = database only, Hybrid mode = database + data lake
+	if hasDataLake {
+		a.mode = app.DataLakeMode
+		logging.LogTransition("unknown", string(app.DataLakeMode), "data lake configuration available")
+	} else {
+		a.mode = app.DatabaseMode
+		logging.LogTransition("unknown", string(app.DatabaseMode), "data lake configuration unavailable")
+	}
+
+	// ASSUMPTION: Mode must be valid after initialization
+	// Invalid mode indicates logic error in mode determination
+	assert.That(a.mode.IsValid(), "operational mode must be valid after initialization")
+
+	// Log mode information
+	modeInfo := app.GetModeInfo(a.mode)
+	logging.LogState("operational_mode", map[string]interface{}{
+		"mode":             modeInfo.Mode.String(),
+		"description":      modeInfo.Description,
+		"enabled_features": modeInfo.EnabledFeatures,
+	})
+
+	op.EndOperationWithResult(map[string]interface{}{
+		"mode":             a.mode.String(),
+		"database_ready":   true,
+		"data_lake_ready":  hasDataLake,
+	})
 }
 
 // Greet returns a greeting for the given name
@@ -63,37 +117,84 @@ func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s, It's show time!", name)
 }
 
+// GetOperationalMode returns the current operational mode
+// This makes the system state queryable
+func (a *App) GetOperationalMode() string {
+	return a.mode.String()
+}
+
 // GetDataLakeStatus checks if the data lake is accessible
 // Returns status string: "available", "unavailable", or error message
+// ASSUMPTION: This operation is only valid in DataLakeMode
+// If called in DatabaseMode, it should return unavailable (not an error, just unavailable)
 func (a *App) GetDataLakeStatus() (string, error) {
-	if a.dataLakeService == nil {
-		return "unavailable", fmt.Errorf("data lake service not initialized")
+	op := logging.StartOperation("GetDataLakeStatus", map[string]interface{}{
+		"current_mode": a.mode.String(),
+	})
+	defer op.EndOperation()
+
+	// ASSUMPTION: Data lake operations require DataLakeMode
+	// If we're in DatabaseMode, data lake is intentionally unavailable
+	// This is not an error - it's the expected state
+	if a.mode != app.DataLakeMode {
+		logging.LogCheckpoint("GetDataLakeStatus", map[string]interface{}{
+			"reason": "data_lake_unavailable_in_database_mode",
+			"mode":   a.mode.String(),
+		})
+		op.EndOperationWithResult("unavailable")
+		return "unavailable", fmt.Errorf("data lake unavailable in %s mode", a.mode)
 	}
+
+	// ASSUMPTION: In DataLakeMode, data lake service must be initialized
+	// If service is nil, mode determination logic was incorrect
+	assert.ThatNotNil(a.dataLakeService, "data lake service must be initialized in DataLakeMode (mode consistency check)")
 
 	err := a.dataLakeService.ValidateDataLake()
 	if err != nil {
+		logging.LogError("GetDataLakeStatus", err, map[string]interface{}{
+			"operation": "validate_data_lake",
+		})
+		op.EndOperationWithResult("unavailable")
 		return "unavailable", err
 	}
 
+	op.EndOperationWithResult("available")
 	return "available", nil
 }
 
 // GetEmailFileCount returns the count of email files in the email final directory
+// ASSUMPTION: This operation requires DataLakeMode
+// In DatabaseMode, email count should come from database, not data lake
 func (a *App) GetEmailFileCount() (int, error) {
-	if a.config == nil {
-		return 0, fmt.Errorf("configuration not loaded")
-	}
+	op := logging.StartOperation("GetEmailFileCount", map[string]interface{}{
+		"current_mode": a.mode.String(),
+	})
+	defer op.EndOperation()
 
-	if a.dataLakeService == nil {
-		return 0, fmt.Errorf("data lake service not initialized")
-	}
+	// ASSUMPTION: Data lake file operations require DataLakeMode
+	// If we're in DatabaseMode, this operation is invalid
+	// This assertion tests the assumption that mode matches operation intent
+	assert.That(a.mode == app.DataLakeMode, "GetEmailFileCount requires DataLakeMode (operation-mode consistency check)")
+
+	// ASSUMPTION: In DataLakeMode, config and service must be initialized
+	// If these are nil, mode determination or initialization logic was incorrect
+	assert.ThatNotNil(a.config, "config must be initialized in DataLakeMode (mode consistency check)")
+	assert.ThatNotNil(a.dataLakeService, "data lake service must be initialized in DataLakeMode (mode consistency check)")
 
 	emailPath := a.config.GetEmailFinalPath()
 	count, err := a.dataLakeService.GetEmailFileCount(emailPath)
 	if err != nil {
+		logging.LogError("GetEmailFileCount", err, map[string]interface{}{
+			"operation":   "get_email_file_count",
+			"email_path":  emailPath,
+		})
 		return 0, fmt.Errorf("error getting email file count: %w", err)
 	}
 
+	op.EndOperationWithResult(map[string]interface{}{
+		"count": count,
+		"path":  emailPath,
+	})
 	return count, nil
 }
 
@@ -184,6 +285,7 @@ type FileInfo struct {
 // SearchFiles searches for files based on the provided filters
 // Assumption: Database is initialized and accessible
 // Assumption: Request contains valid filter parameters
+// ASSUMPTION: This operation works in both modes (uses database)
 func (a *App) SearchFiles(req FileSearchRequest) (*FileSearchResult, error) {
 	op := logging.StartOperation("SearchFiles", map[string]interface{}{
 		"production_request_id": req.ProductionRequestID,
@@ -193,12 +295,21 @@ func (a *App) SearchFiles(req FileSearchRequest) (*FileSearchResult, error) {
 		"exclude_privileged":    req.ExcludePrivileged,
 		"page":                  req.Page,
 		"page_size":             req.PageSize,
+		"mode":                  a.mode.String(),
 	})
 	defer op.EndOperation()
 
-	// ASSUMPTION: Database must be initialized before queries can execute
+	// ASSUMPTION: Database must be initialized in all modes
+	// SearchFiles uses database regardless of mode
 	// If db is nil, the application startup failed or database initialization was skipped
-	assert.ThatNotNil(a.db, "database must be initialized for file searches to work")
+	assert.ThatNotNil(a.db, "database must be initialized for file searches to work (required in all modes)")
+
+	// Log that we're using database for this operation (works in both modes)
+	logging.LogCheckpoint("SearchFiles", map[string]interface{}{
+		"operation_source": "database",
+		"mode":             a.mode.String(),
+		"note":              "database search works in all modes",
+	})
 
 	logging.LogAssumption("Request contains valid filter parameters", map[string]interface{}{
 		"has_date_start": req.DateStart != "",
@@ -349,12 +460,20 @@ type CreateZipResponse struct {
 // Assumption: Database is initialized and can retrieve file information
 // Assumption: At least one file ID is provided
 // Assumption: Production request ID is valid
+// ASSUMPTION: This operation works in both modes (uses database)
 func (a *App) CreateZip(req CreateZipRequest) (*CreateZipResponse, error) {
 	op := logging.StartOperation("CreateZip", map[string]interface{}{
 		"production_request_id": req.ProductionRequestID,
 		"file_count":           len(req.FileIDs),
+		"mode":                 a.mode.String(),
 	})
 	defer op.EndOperation()
+
+	logging.LogCheckpoint("CreateZip", map[string]interface{}{
+		"operation_source": "database",
+		"mode":             a.mode.String(),
+		"note":              "zip creation uses database in all modes",
+	})
 
 	// ASSUMPTION: Database must be initialized to retrieve file information
 	// If db is nil, we cannot look up files to include in zip
