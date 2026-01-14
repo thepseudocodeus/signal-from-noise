@@ -1,0 +1,88 @@
+{
+  "rules": {
+    "do": [
+      {
+        "id": "use_tailwind_utilities",
+        "description": "Use Tailwind utility classes as-is",
+        "priority": "high",
+        "action": "allow",
+        "condition": "class.startsWith('*') && class.contains('tailwind-utility')"
+      },
+      {
+        "id": "copy_flowbite_blocks",
+        "description": "Copy blocks directly from Flowbite",
+        "priority": "high",
+        "action": "allow",
+        "condition": "source === 'flowbite' && type === 'block'"
+      },
+      {
+        "id": "keep_tailwind_defaults",
+        "description": "Keep Tailwind defaults intact",
+        "priority": "medium",
+        "action": "preserve",
+        "condition": "property.includes('default') && framework === 'tailwind'"
+      },
+      {
+        "id": "use_flowbite_react",
+        "description": "Use Flowbite React components where available",
+        "priority": "high",
+        "action": "prefer",
+        "condition": "component.exists && library === 'flowbite-react'"
+      },
+      {
+        "id": "enable_dark_mode",
+        "description": "Enable dark mode via class",
+        "priority": "medium",
+        "action": "apply",
+        "condition": "theme === 'dark'",
+        "implementation": "class='dark'"
+      }
+    ],
+    "do_not": [
+      {
+        "id": "no_override_style",
+        "description": "Do not override borderRadius, boxShadow, or colors",
+        "priority": "high",
+        "action": "prevent",
+        "properties": ["borderRadius", "boxShadow", "colors"],
+        "condition": "operation === 'override'"
+      },
+      {
+        "id": "no_css_resets",
+        "description": "Do not add CSS resets",
+        "priority": "high",
+        "action": "prevent",
+        "condition": "type === 'css' && name.includes('reset')"
+      },
+      {
+        "id": "no_global_font_redefinition",
+        "description": "Do not globally redefine fonts without Tailwind",
+        "priority": "medium",
+        "action": "prevent",
+        "condition": "scope === 'global' && property === 'fontFamily' && !method.includes('tailwind')"
+      },
+      {
+        "id": "no_tailwind_v4",
+        "description": "Do not use Tailwind v4 (Flowbite not ready yet)",
+        "priority": "high",
+        "action": "prevent",
+        "condition": "version === 'tailwind-v4'"
+      },
+      {
+        "id": "no_remove_flowbite_js",
+        "description": "Do not remove Flowbite JS import",
+        "priority": "high",
+        "action": "prevent",
+        "condition": "import.name === 'flowbite' && operation === 'remove'"
+      }
+    ],
+    "metadata": {
+      "framework": "tailwindcss",
+      "version": "3.x",
+      "flowbite_version": "compatible",
+      "react_support": true,
+      "dark_mode": "class-based",
+      "config_type": "rules_engine"
+    }
+  }
+}

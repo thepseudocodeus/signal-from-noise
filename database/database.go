@@ -24,17 +24,31 @@ type File struct {
 	Privileged    bool      `json:"privileged"`
 	DuplicateHash string    `json:"duplicate_hash"`
 	FileName      string    `json:"file_name"`
+	// Email-specific fields (NULL for non-email files)
+	Subject     string `json:"subject"`      // Email subject line
+	FromEmail   string `json:"from_email"`   // Sender email address
+	ToEmail     string `json:"to_email"`     // Recipient email address (first/main)
+	Sentiment   string `json:"sentiment"`    // "positive", "negative", "neutral", "unknown"
+	IsInternal bool  `json:"is_internal"`   // true if internal email, false if external
+	Topic       string `json:"topic"`        // Extracted topic from subject
 }
 
 // FileFilters represents filters for querying files
+// Each filter incrementally reduces the problem space
 type FileFilters struct {
 	ProductionRequestID string
 	DateStart          *time.Time
 	DateEnd            *time.Time
 	Categories         []string // "email", "claim", "other"
 	ExcludePrivileged  bool
-	Page               int
-	PageSize           int
+	// New incremental filters
+	Topics    []string // Topics extracted from email subjects
+	People    []string // Email addresses (from FROM or TO fields)
+	Sentiment string   // "positive", "negative", "neutral", "unknown", "all"
+	// People filter options
+	PeopleFilterType string // "internal", "external", "specific", "all"
+	Page             int
+	PageSize         int
 }
 
 // FileResult represents paginated file results
@@ -148,6 +162,13 @@ func (d *DB) initSchema() error {
 		privileged INTEGER NOT NULL DEFAULT 0,
 		duplicate_hash TEXT,
 		file_name TEXT NOT NULL,
+		-- Email-specific fields (NULL for non-email files)
+		subject TEXT,
+		from_email TEXT,
+		to_email TEXT,
+		sentiment TEXT,
+		is_internal INTEGER DEFAULT 0,
+		topic TEXT,
 		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 
@@ -156,6 +177,12 @@ func (d *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_files_directory ON files(directory);
 	CREATE INDEX IF NOT EXISTS idx_files_privileged ON files(privileged);
 	CREATE INDEX IF NOT EXISTS idx_files_duplicate_hash ON files(duplicate_hash);
+	-- New indexes for filtering
+	CREATE INDEX IF NOT EXISTS idx_files_topic ON files(topic);
+	CREATE INDEX IF NOT EXISTS idx_files_sentiment ON files(sentiment);
+	CREATE INDEX IF NOT EXISTS idx_files_is_internal ON files(is_internal);
+	CREATE INDEX IF NOT EXISTS idx_files_from_email ON files(from_email);
+	CREATE INDEX IF NOT EXISTS idx_files_to_email ON files(to_email);
 
 	CREATE TABLE IF NOT EXISTS production_requests (
 		id TEXT PRIMARY KEY,
@@ -230,6 +257,77 @@ func (d *DB) SearchFiles(filters FileFilters) (*FileResult, error) {
 			args = append(args, cat)
 		}
 		whereClause += fmt.Sprintf(" AND category IN (%s)", placeholders)
+		logging.LogCheckpoint("SearchFiles", map[string]interface{}{
+			"filter": "category",
+			"count":  len(filters.Categories),
+		})
+	}
+
+	// Topic filter (incremental complexity reduction)
+	// ASSUMPTION: Topics exist in database and can filter email files
+	// If topics selected, only files with matching topics are returned
+	if len(filters.Topics) > 0 {
+		placeholders := ""
+		for i, topic := range filters.Topics {
+			if i > 0 {
+				placeholders += ","
+			}
+			placeholders += "?"
+			args = append(args, topic)
+		}
+		whereClause += fmt.Sprintf(" AND topic IN (%s)", placeholders)
+		logging.LogCheckpoint("SearchFiles", map[string]interface{}{
+			"filter": "topic",
+			"count":  len(filters.Topics),
+			"topics": filters.Topics,
+		})
+	}
+
+	// People filter (incremental complexity reduction)
+	// ASSUMPTION: People filter reduces result set by email addresses
+	// Internal/external classification precomputed for performance
+	if filters.PeopleFilterType != "" && filters.PeopleFilterType != "all" {
+		if filters.PeopleFilterType == "internal" {
+			whereClause += " AND is_internal = 1"
+			logging.LogCheckpoint("SearchFiles", map[string]interface{}{
+				"filter": "people",
+				"type":   "internal",
+			})
+		} else if filters.PeopleFilterType == "external" {
+			whereClause += " AND is_internal = 0"
+			logging.LogCheckpoint("SearchFiles", map[string]interface{}{
+				"filter": "people",
+				"type":   "external",
+			})
+		} else if filters.PeopleFilterType == "specific" && len(filters.People) > 0 {
+			// Filter by specific email addresses
+			placeholders := ""
+			for i, email := range filters.People {
+				if i > 0 {
+					placeholders += " OR "
+				}
+				placeholders += "(from_email = ? OR to_email = ?)"
+				args = append(args, email, email)
+			}
+			whereClause += fmt.Sprintf(" AND (%s)", placeholders)
+			logging.LogCheckpoint("SearchFiles", map[string]interface{}{
+				"filter": "people",
+				"type":   "specific",
+				"count":  len(filters.People),
+			})
+		}
+	}
+
+	// Sentiment filter (incremental complexity reduction)
+	// ASSUMPTION: Sentiment values are valid and filter email files
+	// "all" means no sentiment filter applied
+	if filters.Sentiment != "" && filters.Sentiment != "all" {
+		whereClause += " AND sentiment = ?"
+		args = append(args, filters.Sentiment)
+		logging.LogCheckpoint("SearchFiles", map[string]interface{}{
+			"filter":   "sentiment",
+			"sentiment": filters.Sentiment,
+		})
 	}
 
 	// Exclude privileged
@@ -240,14 +338,13 @@ func (d *DB) SearchFiles(filters FileFilters) (*FileResult, error) {
 	// Get total count
 	// ASSUMPTION: SQL query will execute successfully and return a count
 	// If this fails, the database schema or query structure is invalid
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM files WHERE %s", whereClause)
 	logging.LogQuery(countQuery, map[string]interface{}{
-		"args_count": len(args),
+		"args_count": len(countArgs),
 		"filters":    whereClause,
 	})
 
 	var totalCount int
-	err := d.db.QueryRow(countQuery, args...).Scan(&totalCount)
+	err = d.db.QueryRow(countQuery, countArgs...).Scan(&totalCount)
 	if err != nil {
 		logging.LogError("SearchFiles", err, map[string]interface{}{
 			"operation": "count_query",
@@ -284,8 +381,10 @@ func (d *DB) SearchFiles(filters FileFilters) (*FileResult, error) {
 	// Get files
 	// ASSUMPTION: SQL query structure matches database schema
 	// Column names must exist in the files table
+	// Include all fields for frontend display
 	query := fmt.Sprintf(`
-		SELECT id, path, directory, category, date, size, privileged, duplicate_hash, file_name
+		SELECT id, path, directory, category, date, size, privileged, duplicate_hash, file_name,
+		       subject, from_email, to_email, sentiment, is_internal, topic
 		FROM files
 		WHERE %s
 		ORDER BY date DESC
@@ -312,6 +411,8 @@ func (d *DB) SearchFiles(filters FileFilters) (*FileResult, error) {
 	for rows.Next() {
 		var f File
 		var dateStr string
+		var subject, fromEmail, toEmail, sentiment, topic sql.NullString
+		var isInternal sql.NullBool
 		
 		// ASSUMPTION: Row structure matches SELECT statement
 		// All columns must be scannable into the File struct
@@ -325,6 +426,12 @@ func (d *DB) SearchFiles(filters FileFilters) (*FileResult, error) {
 			&f.Privileged,
 			&f.DuplicateHash,
 			&f.FileName,
+			&subject,
+			&fromEmail,
+			&toEmail,
+			&sentiment,
+			&isInternal,
+			&topic,
 		)
 		if err != nil {
 			logging.LogError("SearchFiles", err, map[string]interface{}{
@@ -342,6 +449,26 @@ func (d *DB) SearchFiles(filters FileFilters) (*FileResult, error) {
 				"date_str":  dateStr,
 			})
 			return nil, fmt.Errorf("failed to parse date: %w", err)
+		}
+
+		// Handle nullable email fields
+		if subject.Valid {
+			f.Subject = subject.String
+		}
+		if fromEmail.Valid {
+			f.FromEmail = fromEmail.String
+		}
+		if toEmail.Valid {
+			f.ToEmail = toEmail.String
+		}
+		if sentiment.Valid {
+			f.Sentiment = sentiment.String
+		}
+		if topic.Valid {
+			f.Topic = topic.String
+		}
+		if isInternal.Valid {
+			f.IsInternal = isInternal.Bool
 		}
 
 		// ASSUMPTION: File ID must be positive (database constraint)
@@ -428,7 +555,8 @@ func (d *DB) GetFilesByIDs(ids []int64) ([]File, error) {
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, path, directory, category, date, size, privileged, duplicate_hash, file_name
+		SELECT id, path, directory, category, date, size, privileged, duplicate_hash, file_name,
+		       subject, from_email, to_email, sentiment, is_internal, topic
 		FROM files
 		WHERE id IN (%s)
 	`, placeholders)
@@ -443,6 +571,8 @@ func (d *DB) GetFilesByIDs(ids []int64) ([]File, error) {
 	for rows.Next() {
 		var f File
 		var dateStr string
+		var subject, fromEmail, toEmail, sentiment, topic sql.NullString
+		var isInternal sql.NullBool
 		err := rows.Scan(
 			&f.ID,
 			&f.Path,
@@ -453,6 +583,12 @@ func (d *DB) GetFilesByIDs(ids []int64) ([]File, error) {
 			&f.Privileged,
 			&f.DuplicateHash,
 			&f.FileName,
+			&subject,
+			&fromEmail,
+			&toEmail,
+			&sentiment,
+			&isInternal,
+			&topic,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan file: %w", err)
@@ -461,6 +597,26 @@ func (d *DB) GetFilesByIDs(ids []int64) ([]File, error) {
 		f.Date, err = time.Parse(time.RFC3339, dateStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse date: %w", err)
+		}
+
+		// Handle nullable fields
+		if subject.Valid {
+			f.Subject = subject.String
+		}
+		if fromEmail.Valid {
+			f.FromEmail = fromEmail.String
+		}
+		if toEmail.Valid {
+			f.ToEmail = toEmail.String
+		}
+		if sentiment.Valid {
+			f.Sentiment = sentiment.String
+		}
+		if topic.Valid {
+			f.Topic = topic.String
+		}
+		if isInternal.Valid {
+			f.IsInternal = isInternal.Bool
 		}
 
 		files = append(files, f)

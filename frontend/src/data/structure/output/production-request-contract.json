@@ -1,0 +1,329 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Production Request Output Contract",
+  "description": "Explicit assumptions about what output satisfies a production request. These define the '95% confidence' criteria.",
+  "type": "object",
+  "properties": {
+    "request_satisfaction_criteria": {
+      "type": "object",
+      "description": "Assumption: A production request is satisfied if these criteria are met",
+      "properties": {
+        "completeness": {
+          "type": "object",
+          "properties": {
+            "threshold": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.95,
+              "description": "Assumption: Output is complete if it contains >= 95% of relevant files"
+            },
+            "measurement": {
+              "type": "string",
+              "enum": ["file_count", "data_coverage", "temporal_coverage", "topic_coverage"],
+              "description": "Assumption: Completeness measured by this metric"
+            }
+          }
+        },
+        "relevance": {
+          "type": "object",
+          "properties": {
+            "threshold": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.95,
+              "description": "Assumption: Output is relevant if >= 95% of files match request criteria"
+            },
+            "false_positive_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.05,
+              "description": "Assumption: At most 5% of files are irrelevant (false positives)"
+            }
+          }
+        },
+        "traceability": {
+          "type": "object",
+          "properties": {
+            "required": {
+              "type": "boolean",
+              "default": true,
+              "description": "Assumption: Every file in output must be traceable to source"
+            },
+            "manifest_required": {
+              "type": "boolean",
+              "default": true,
+              "description": "Assumption: Zip file must include manifest with source paths"
+            }
+          }
+        }
+      }
+    },
+    "problem_space_reduction": {
+      "type": "object",
+      "description": "Assumption: Each filter reduces problem space by measurable amount",
+      "properties": {
+        "initial_space": {
+          "type": "object",
+          "properties": {
+            "definition": {
+              "type": "string",
+              "default": "|U| = total files in data source",
+              "description": "Mathematical definition of initial problem space"
+            },
+            "measurement": {
+              "type": "string",
+              "enum": ["cardinality", "file_count", "data_size"],
+              "description": "How we measure the space"
+            }
+          }
+        },
+        "reduction_steps": {
+          "type": "array",
+          "description": "Assumption: Each step reduces space by this factor",
+          "items": {
+            "type": "object",
+            "properties": {
+              "step_name": {
+                "type": "string",
+                "description": "Name of filtering step (e.g., 'category', 'date_range')"
+              },
+              "reduction_factor": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Assumption: This step reduces space by X (0.0 to 1.0, where 1.0 = 100% reduction)"
+              },
+              "expected_cardinality_after": {
+                "type": "object",
+                "properties": {
+                  "formula": {
+                    "type": "string",
+                    "description": "Mathematical formula: |After| = f(|Before|, selection)"
+                  },
+                  "example": {
+                    "type": "string",
+                    "description": "Example calculation"
+                  }
+                }
+              },
+              "falsifiable": {
+                "type": "boolean",
+                "description": "Can we test if actual reduction matches expected?"
+              }
+            }
+          },
+          "default": [
+            {
+              "step_name": "category",
+              "reduction_factor": 0.33,
+              "expected_cardinality_after": {
+                "formula": "|C| = |U| * (selected_categories / total_categories)",
+                "example": "If 1 of 3 categories selected: |C| = |U| * 0.33"
+              },
+              "falsifiable": true
+            },
+            {
+              "step_name": "date_range",
+              "reduction_factor": 0.5,
+              "expected_cardinality_after": {
+                "formula": "|D| = |C| * (date_range_days / total_days)",
+                "example": "If 1 year of 3 years selected: |D| = |C| * 0.33"
+              },
+              "falsifiable": true
+            },
+            {
+              "step_name": "topics",
+              "reduction_factor": 0.2,
+              "expected_cardinality_after": {
+                "formula": "|T| = |D| * (selected_topics / total_topics)",
+                "example": "If 2 of 10 topics selected: |T| = |D| * 0.2"
+              },
+              "falsifiable": true
+            },
+            {
+              "step_name": "people",
+              "reduction_factor": 0.3,
+              "expected_cardinality_after": {
+                "formula": "|P| = |T| * (selected_people / total_people)",
+                "example": "If 5 of 50 people selected: |P| = |T| * 0.1"
+              },
+              "falsifiable": true
+            },
+            {
+              "step_name": "sentiment",
+              "reduction_factor": 0.25,
+              "expected_cardinality_after": {
+                "formula": "|S| = |P| * (1 / sentiment_options)",
+                "example": "If 1 of 4 sentiments selected: |S| = |P| * 0.25"
+              },
+              "falsifiable": true
+            }
+          ]
+        },
+        "final_space_formula": {
+          "type": "string",
+          "default": "|F| = |U| * R_category * R_date * R_topic * R_people * R_sentiment",
+          "description": "Mathematical formula for final problem space size"
+        },
+        "total_reduction_required": {
+          "type": "object",
+          "properties": {
+            "minimum": {
+              "type": "number",
+              "default": 0.95,
+              "description": "Assumption: Must reduce problem space by at least 95% to be manageable"
+            },
+            "target": {
+              "type": "number",
+              "default": 0.99,
+              "description": "Target: Reduce by 99% for optimal performance"
+            }
+          }
+        }
+      }
+    },
+    "confidence_calculation": {
+      "type": "object",
+      "description": "Assumption: Confidence that output satisfies request is calculated this way",
+      "properties": {
+        "formula": {
+          "type": "string",
+          "default": "C(R) = P(Result ⊆ Relevant(R)) = |Result ∩ Relevant(R)| / |Relevant(R)|",
+          "description": "Mathematical formula for confidence"
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "component_name": {
+                "type": "string",
+                "description": "Name of confidence component (e.g., 'completeness', 'relevance')"
+              },
+              "weight": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Weight of this component in overall confidence"
+              },
+              "calculation": {
+                "type": "string",
+                "description": "How this component is calculated"
+              }
+            }
+          },
+          "default": [
+            {
+              "component_name": "completeness",
+              "weight": 0.4,
+              "calculation": "|Result ∩ Relevant| / |Relevant|"
+            },
+            {
+              "component_name": "relevance",
+              "weight": 0.4,
+              "calculation": "1 - (|Result - Relevant| / |Result|)"
+            },
+            {
+              "component_name": "coverage",
+              "weight": 0.2,
+              "calculation": "Temporal and topic coverage metrics"
+            }
+          ]
+        },
+        "threshold": {
+          "type": "number",
+          "default": 0.95,
+          "description": "Assumption: Confidence >= 0.95 means request is satisfied"
+        }
+      }
+    },
+    "output_structure": {
+      "type": "object",
+      "description": "Assumption: Output zip file has this structure",
+      "properties": {
+        "required_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["manifest.json", "data/"],
+          "description": "Assumption: Zip must contain these files/directories"
+        },
+        "manifest_schema": {
+          "type": "object",
+          "description": "Assumption: manifest.json follows this schema",
+          "properties": {
+            "production_request_id": {
+              "type": "string",
+              "description": "Required: ID of production request"
+            },
+            "file_count": {
+              "type": "integer",
+              "description": "Required: Number of files included"
+            },
+            "confidence_metrics": {
+              "type": "object",
+              "description": "Required: Confidence calculations",
+              "properties": {
+                "overall_confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "completeness": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "relevance": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            },
+            "reduction_metrics": {
+              "type": "object",
+              "description": "Required: Problem space reduction at each step",
+              "properties": {
+                "initial_space": {
+                  "type": "integer"
+                },
+                "final_space": {
+                  "type": "integer"
+                },
+                "reduction_factor": {
+                  "type": "number"
+                },
+                "step_reductions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "step": {
+                        "type": "string"
+                      },
+                      "before": {
+                        "type": "integer"
+                      },
+                      "after": {
+                        "type": "integer"
+                      },
+                      "reduction": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "required": ["request_satisfaction_criteria", "problem_space_reduction", "confidence_calculation", "output_structure"]
+}

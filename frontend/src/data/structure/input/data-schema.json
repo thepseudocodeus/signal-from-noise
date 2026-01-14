@@ -1,0 +1,275 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Input Data Schema Contract",
+  "description": "Explicit assumptions about the structure of input data. These assumptions can be falsified by data profiling.",
+  "type": "object",
+  "properties": {
+    "data_source": {
+      "type": "object",
+      "description": "Assumption: Data comes from a directory structure",
+      "properties": {
+        "root_path": {
+          "type": "string",
+          "description": "Root directory containing all data"
+        },
+        "structure_type": {
+          "type": "string",
+          "enum": ["flat", "hierarchical", "categorized"],
+          "description": "Assumption: Data is organized in one of these structures"
+        }
+      },
+      "required": ["root_path", "structure_type"]
+    },
+    "file_metadata": {
+      "type": "object",
+      "description": "Assumption: Every file has these metadata fields",
+      "properties": {
+        "required_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["path", "directory", "category", "date", "size", "file_name"],
+          "description": "Assumption: These fields always exist"
+        },
+        "optional_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["privileged", "duplicate_hash"],
+          "description": "Assumption: These fields may be NULL"
+        }
+      }
+    },
+    "email_specific_fields": {
+      "type": "object",
+      "description": "Assumption: Email files have additional fields. Non-email files have NULL for these.",
+      "properties": {
+        "subject": {
+          "type": "object",
+          "properties": {
+            "exists": {
+              "type": "boolean",
+              "description": "Assumption: All emails have subject lines"
+            },
+            "non_empty": {
+              "type": "boolean",
+              "description": "Assumption: Subject lines are never empty strings"
+            },
+            "topic_extractable": {
+              "type": "boolean",
+              "description": "Assumption: Topics can be extracted from subjects"
+            }
+          }
+        },
+        "from_email": {
+          "type": "object",
+          "properties": {
+            "exists": {
+              "type": "boolean",
+              "description": "Assumption: All emails have FROM field"
+            },
+            "format": {
+              "type": "string",
+              "description": "Assumption: Email format is valid (can be validated)"
+            },
+            "internal_classifiable": {
+              "type": "boolean",
+              "description": "Assumption: Can classify as internal/external"
+            }
+          }
+        },
+        "to_email": {
+          "type": "object",
+          "properties": {
+            "exists": {
+              "type": "boolean",
+              "description": "Assumption: All emails have TO field (may be multiple, we use first/main)"
+            },
+            "format": {
+              "type": "string",
+              "description": "Assumption: Email format is valid"
+            }
+          }
+        },
+        "sentiment": {
+          "type": "object",
+          "properties": {
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["positive", "negative", "neutral", "unknown"]
+              },
+              "description": "Assumption: Sentiment is one of these values"
+            },
+            "coverage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Assumption: X% of emails have sentiment assigned (0.0 to 1.0)"
+            }
+          }
+        },
+        "is_internal": {
+          "type": "object",
+          "properties": {
+            "computable": {
+              "type": "boolean",
+              "description": "Assumption: Can compute internal/external from FROM/TO fields"
+            },
+            "precomputed": {
+              "type": "boolean",
+              "description": "Assumption: Internal/external sets are precomputed for performance"
+            }
+          }
+        }
+      }
+    },
+    "cardinalities": {
+      "type": "object",
+      "description": "Assumption: Data has these approximate sizes (used for complexity bounds)",
+      "properties": {
+        "total_files": {
+          "type": "object",
+          "properties": {
+            "min": {
+              "type": "integer",
+              "description": "Assumption: At least this many files"
+            },
+            "max": {
+              "type": "integer",
+              "description": "Assumption: At most this many files"
+            },
+            "typical": {
+              "type": "integer",
+              "description": "Assumption: Typically this many files"
+            }
+          }
+        },
+        "email_files": {
+          "type": "object",
+          "properties": {
+            "percentage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Assumption: X% of files are emails"
+            }
+          }
+        },
+        "unique_topics": {
+          "type": "object",
+          "properties": {
+            "min": {
+              "type": "integer",
+              "description": "Assumption: At least this many unique topics"
+            },
+            "max": {
+              "type": "integer",
+              "description": "Assumption: At most this many unique topics"
+            }
+          }
+        },
+        "unique_people": {
+          "type": "object",
+          "properties": {
+            "internal": {
+              "type": "integer",
+              "description": "Assumption: Approximately this many internal email addresses"
+            },
+            "external": {
+              "type": "integer",
+              "description": "Assumption: Approximately this many external email addresses"
+            }
+          }
+        }
+      }
+    },
+    "relationships": {
+      "type": "object",
+      "description": "Assumption: Data has these relationships",
+      "properties": {
+        "people_in_emails": {
+          "type": "object",
+          "properties": {
+            "from_field": {
+              "type": "boolean",
+              "description": "Assumption: People appear in FROM field"
+            },
+            "to_field": {
+              "type": "boolean",
+              "description": "Assumption: People appear in TO field"
+            },
+            "union_required": {
+              "type": "boolean",
+              "description": "Assumption: Must union FROM and TO to get all people"
+            }
+          }
+        },
+        "topics_from_subjects": {
+          "type": "object",
+          "properties": {
+            "extraction_method": {
+              "type": "string",
+              "description": "Assumption: Topics extracted via this method (e.g., 'keyword_extraction', 'nlp', 'manual')"
+            },
+            "coverage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Assumption: X% of subjects have extractable topics"
+            }
+          }
+        }
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "description": "Assumption: Data satisfies these constraints",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Constraint name"
+          },
+          "description": {
+            "type": "string",
+            "description": "What the constraint asserts"
+          },
+          "falsifiable": {
+            "type": "boolean",
+            "description": "Can this constraint be tested against actual data?"
+          },
+          "example": {
+            "type": "string",
+            "description": "Example of constraint violation"
+          }
+        }
+      },
+      "default": [
+        {
+          "name": "email_subject_not_empty",
+          "description": "Assumption: If category='email', then subject IS NOT NULL and subject != ''",
+          "falsifiable": true,
+          "example": "Email file with NULL or empty subject violates this"
+        },
+        {
+          "name": "date_valid",
+          "description": "Assumption: All files have valid date in reasonable range (e.g., 2000-2100)",
+          "falsifiable": true,
+          "example": "File with date='1900-01-01' violates this"
+        },
+        {
+          "name": "category_valid",
+          "description": "Assumption: Category is one of: 'email', 'claim', 'other'",
+          "falsifiable": true,
+          "example": "File with category='invalid' violates this"
+        }
+      ]
+    }
+  },
+  "required": ["data_source", "file_metadata", "email_specific_fields", "cardinalities", "relationships", "constraints"]
+}

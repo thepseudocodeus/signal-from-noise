@@ -1,5 +1,9 @@
-import { Alert, Datepicker, Label } from "flowbite-react";
+import { Alert, Label } from "flowbite-react";
 import { useEffect, useState } from "react";
+
+// TEMPORARY: Using native HTML5 date inputs for demo
+// TODO: Replace with Flowbite Datepicker once calendar popup issue is resolved
+// Trade-off: Native inputs work immediately, Datepicker needs debugging
 
 /**
  * DateRangeSelector - A reusable date range selection component
@@ -126,14 +130,18 @@ export function DateRangeSelector({
           <Label htmlFor="start-date" className="mb-2 block">
             {startLabel}
           </Label>
-          <Datepicker
+          <input
             id="start-date"
-            value={startDate || null}
-            onChange={handleStartChange}
-            minDate={minDate}
-            maxDate={startDateMaxDate}
-            labelClearButton="Clear"
-            labelTodayButton="Today"
+            type="date"
+            aria-label={startLabel}
+            value={startDate ? startDate.toISOString().split("T")[0] : ""}
+            onChange={(e) => {
+              const date = e.target.value ? new Date(e.target.value) : null;
+              handleStartChange(date);
+            }}
+            min={minDate.toISOString().split("T")[0]}
+            max={startDateMaxDate.toISOString().split("T")[0]}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
           />
         </div>
 
@@ -142,14 +150,18 @@ export function DateRangeSelector({
           <Label htmlFor="end-date" className="mb-2 block">
             {endLabel}
           </Label>
-          <Datepicker
+          <input
             id="end-date"
-            value={endDate || null}
-            onChange={handleEndChange}
-            minDate={endDateMinDate}
-            maxDate={maxDate}
-            labelClearButton="Clear"
-            labelTodayButton="Today"
+            type="date"
+            aria-label={endLabel}
+            value={endDate ? endDate.toISOString().split("T")[0] : ""}
+            onChange={(e) => {
+              const date = e.target.value ? new Date(e.target.value) : null;
+              handleEndChange(date);
+            }}
+            min={endDateMinDate.toISOString().split("T")[0]}
+            max={maxDate.toISOString().split("T")[0]}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
           />
         </div>
       </div>

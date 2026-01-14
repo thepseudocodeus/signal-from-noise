@@ -8,38 +8,31 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
 
-    // Flowbite core
+    // Flowbite core + React components
     "./node_modules/flowbite/**/*.js",
-
-    // Flowbite React components
     "./node_modules/flowbite-react/lib/esm/**/*.js",
   ],
 
   theme: {
     extend: {
-      /*
-        IMPORTANT:
-        Do NOT override colors, borderRadius, boxShadow, spacing, etc.
-        Flowbite blocks rely on Tailwind defaults.
-      */
+      // Flowbite relies on default Tailwind values,
+      // so avoid overriding colors, radius, shadows unless intentional
     },
   },
 
   safelist: [
-    // Display utilities toggled dynamically
+    // Flowbite blocks often toggle these dynamically
     "hidden",
     "block",
     "flex",
-    "inline-flex",
     "grid",
 
-    // Layout patterns used by blocks
-    "grid-cols-1",
+    // Common responsive layouts used in blocks
     "md:grid-cols-2",
     "lg:grid-cols-3",
     "lg:grid-cols-4",
 
-    // Dark mode classes used dynamically
+    // Dark mode variants used dynamically
     "dark:bg-gray-800",
     "dark:bg-gray-900",
     "dark:text-white",

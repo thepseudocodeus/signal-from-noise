@@ -1,0 +1,236 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Assumption Verification Contract",
+  "description": "How to verify/falsify assumptions about data structure and processing",
+  "type": "object",
+  "properties": {
+    "data_profiling": {
+      "type": "object",
+      "description": "Assumption: We can profile data to verify structure assumptions",
+      "properties": {
+        "schema_validation": {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "enum": ["sql_schema_check", "json_schema_validation", "sample_validation"],
+              "description": "How to validate schema assumptions"
+            },
+            "sample_size": {
+              "type": "integer",
+              "description": "Assumption: Validating N samples is sufficient"
+            },
+            "failure_threshold": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "If >X% of samples fail, assumption is falsified"
+            }
+          }
+        },
+        "constraint_validation": {
+          "type": "object",
+          "properties": {
+            "sql_queries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "constraint_name": {
+                    "type": "string"
+                  },
+                  "falsification_query": {
+                    "type": "string",
+                    "description": "SQL query that returns violations if assumption is false"
+                  },
+                  "expected_result": {
+                    "type": "string",
+                    "enum": ["empty", "zero", "null"],
+                    "description": "If assumption is true, query should return this"
+                  }
+                }
+              },
+              "default": [
+                {
+                  "constraint_name": "email_subject_not_empty",
+                  "falsification_query": "SELECT COUNT(*) FROM files WHERE category='email' AND (subject IS NULL OR subject='')",
+                  "expected_result": "zero",
+                  "description": "If this returns >0, assumption is falsified"
+                },
+                {
+                  "constraint_name": "date_valid",
+                  "falsification_query": "SELECT COUNT(*) FROM files WHERE date < '2000-01-01' OR date > '2100-01-01'",
+                  "expected_result": "zero"
+                },
+                {
+                  "constraint_name": "category_valid",
+                  "falsification_query": "SELECT COUNT(*) FROM files WHERE category NOT IN ('email', 'claim', 'other')",
+                  "expected_result": "zero"
+                }
+              ]
+            }
+          }
+        },
+        "cardinality_validation": {
+          "type": "object",
+          "properties": {
+            "measurement_queries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "metric_name": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string",
+                    "description": "SQL query to measure this metric"
+                  },
+                  "expected_range": {
+                    "type": "object",
+                    "properties": {
+                      "min": {
+                        "type": "integer"
+                      },
+                      "max": {
+                        "type": "integer"
+                      }
+                    },
+                    "description": "Assumption: Metric is in this range"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "reduction_verification": {
+      "type": "object",
+      "description": "Assumption: We can verify problem space reduction at each step",
+      "properties": {
+        "measurement_method": {
+          "type": "string",
+          "enum": ["cardinality_count", "query_execution", "sampling"],
+          "description": "How we measure reduction"
+        },
+        "verification_queries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "step_name": {
+                "type": "string"
+              },
+              "before_query": {
+                "type": "string",
+                "description": "SQL to count space before this step"
+              },
+              "after_query": {
+                "type": "string",
+                "description": "SQL to count space after this step"
+              },
+              "expected_reduction": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Assumption: Reduction is at least this much"
+              },
+              "falsification_condition": {
+                "type": "string",
+                "description": "If actual_reduction < expected_reduction, assumption is falsified"
+              }
+            }
+          }
+        },
+        "confidence_verification": {
+          "type": "object",
+          "properties": {
+            "calculation_query": {
+              "type": "string",
+              "description": "SQL query to calculate confidence metrics"
+            },
+            "threshold": {
+              "type": "number",
+              "default": 0.95,
+              "description": "Assumption: Confidence >= threshold"
+            },
+            "falsification_condition": {
+              "type": "string",
+              "default": "If calculated_confidence < 0.95, assumption is falsified"
+            }
+          }
+        }
+      }
+    },
+    "execution_complexity": {
+      "type": "object",
+      "description": "Assumption: Execution complexity is bounded",
+      "properties": {
+        "complexity_bounds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "type": "string",
+                "description": "Operation name (e.g., 'SearchFiles', 'CreateZip')"
+              },
+              "big_o": {
+                "type": "string",
+                "description": "Assumed complexity (e.g., 'O(n)', 'O(n log n)')"
+              },
+              "measurement_method": {
+                "type": "string",
+                "description": "How to measure actual complexity"
+              },
+              "falsification_condition": {
+                "type": "string",
+                "description": "If actual complexity exceeds bound, assumption is falsified"
+              }
+            }
+          },
+          "default": [
+            {
+              "operation": "SearchFiles",
+              "big_o": "O(n)",
+              "measurement_method": "Time query execution with varying n",
+              "falsification_condition": "If time grows faster than linear, assumption is falsified"
+            },
+            {
+              "operation": "CreateZip",
+              "big_o": "O(m)",
+              "measurement_method": "Time zip creation with m files",
+              "falsification_condition": "If time grows faster than linear in m, assumption is falsified"
+            }
+          ]
+        },
+        "time_constraints": {
+          "type": "object",
+          "properties": {
+            "total_time_limit": {
+              "type": "integer",
+              "default": 3600,
+              "description": "Assumption: Total processing time < 1 hour (3600 seconds)"
+            },
+            "per_step_limits": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "step": {
+                    "type": "string"
+                  },
+                  "max_seconds": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "required": ["data_profiling", "reduction_verification", "execution_complexity"]
+}
