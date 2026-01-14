@@ -41,26 +41,30 @@ export function CategoryStep({
       </div>
 
       <div className="space-y-4 mb-8">
-        {categories.map((category) => (
-          <div
-            key={category}
-            className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
-            onClick={() => onToggle(category)}
-          >
-            <Checkbox
-              id={category}
-              checked={selected.includes(category)}
-              onChange={() => onToggle(category)}
-              className="mr-4"
-            />
-            <Label
-              htmlFor={category}
-              className="text-lg font-medium text-gray-900 cursor-pointer flex-grow"
+        {categories.map((category) => {
+          const checkboxId = `category-${category}`;
+
+          return (
+            <div
+              key={category}
+              className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
+              onClick={() => onToggle(category)}
             >
-              {categoryLabels[category]}
-            </Label>
-          </div>
-        ))}
+              <Checkbox
+                id={checkboxId}
+                checked={selected.includes(category)}
+                readOnly
+                className="mr-4 pointer-events-none"
+              />
+              <Label
+                htmlFor={checkboxId}
+                className="text-lg font-medium text-gray-900 cursor-pointer flex-grow"
+              >
+                {categoryLabels[category]}
+              </Label>
+            </div>
+          );
+        })}
       </div>
 
       {!isValid && (
@@ -76,7 +80,7 @@ export function CategoryStep({
         <Button color="gray" onClick={onBack}>
           Back
         </Button>
-        <Button onClick={onNext} disabled={!isValid} className="px-6">
+        <Button onClick={onNext} className="px-6">
           Next
         </Button>
       </div>

@@ -33,38 +33,41 @@ export function ProductionRequestStep({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-        {requests.map((request) => (
-          <Card
-            key={request.id}
-            className={`cursor-pointer transition-all hover:shadow-lg ${
-              selected?.id === request.id
-                ? 'ring-4 ring-blue-500 border-blue-500'
-                : 'hover:border-gray-300'
-            }`}
-            onClick={() => onSelect(request)}
-          >
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              {request.title}
-            </h3>
-            <p className="text-sm text-gray-600">
-              {request.description}
-            </p>
-          </Card>
-        ))}
+        {requests.map((request) => {
+          const isSelected = selected?.id === request.id;
+
+          return (
+            <Card
+              key={request.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelect(request)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelect(request);
+                }
+              }}
+              className={`cursor-pointer transition-all hover:shadow-lg ${
+                isSelected
+                  ? "ring-2 ring-blue-500 border-blue-500"
+                  : "hover:border-gray-300"
+              }`}
+            >
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                {request.title}
+              </h3>
+              <p className="text-sm text-gray-600">{request.description}</p>
+            </Card>
+          );
+        })}
       </div>
 
       <div className="flex justify-between">
-        <Button
-          color="gray"
-          onClick={onBack}
-        >
+        <Button color="gray" onClick={onBack}>
           Back
         </Button>
-        <Button
-          onClick={onNext}
-          disabled={!isValid}
-          className="px-6"
-        >
+        <Button onClick={onNext} disabled={!isValid} className="px-6">
           Next
         </Button>
       </div>

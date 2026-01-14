@@ -1,13 +1,16 @@
-import { Button, Card } from 'flowbite-react';
-import { useState, useEffect } from 'react';
-import { GetDataLakeStatus, GetEmailFileCount } from '../../../wailsjs/go/main/App';
+import { Button, Card } from "flowbite-react";
+import { useEffect, useState } from "react";
+import {
+  GetDataLakeStatus,
+  GetEmailFileCount,
+} from "../../../wailsjs/go/main/App";
 
 interface SplashStepProps {
   onStart: () => void;
 }
 
 export function SplashStep({ onStart }: SplashStepProps) {
-  const [status, setStatus] = useState<string>('checking...');
+  const [status, setStatus] = useState<string>("checking...");
   const [fileCount, setFileCount] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -21,8 +24,8 @@ export function SplashStep({ onStart }: SplashStepProps) {
         const count = await GetEmailFileCount();
         setFileCount(count);
       } catch (error) {
-        console.error('Error checking data lake status:', error);
-        setStatus('unavailable');
+        console.error("Error checking data lake status:", error);
+        setStatus("unavailable");
         setFileCount(0);
       } finally {
         setLoading(false);
@@ -47,18 +50,28 @@ export function SplashStep({ onStart }: SplashStepProps) {
       <Card className="mb-6">
         <div className="flex justify-between items-center">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Data Lake Status</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Data Lake Status
+            </h3>
             {loading ? (
               <p className="text-sm text-gray-600">Loading...</p>
             ) : (
               <>
                 <p className="text-sm text-gray-600 mb-1">
-                  Status: <span className={`font-medium ${status === 'available' ? 'text-green-600' : 'text-red-600'}`}>
+                  Status:{" "}
+                  <span
+                    className={`font-medium ${
+                      status === "available" ? "text-green-600" : "text-red-600"
+                    }`}
+                  >
                     {status}
                   </span>
                 </p>
                 <p className="text-sm text-gray-600">
-                  Email Files: <span className="font-medium text-blue-600">{fileCount.toLocaleString()}</span>
+                  Email Files:{" "}
+                  <span className="font-medium text-blue-600">
+                    {fileCount.toLocaleString()}
+                  </span>
                 </p>
               </>
             )}
@@ -69,8 +82,12 @@ export function SplashStep({ onStart }: SplashStepProps) {
       {/* Search Capabilities (Greyed Out Preview) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 opacity-60">
         <Card className="bg-gray-50">
-          <h3 className="font-semibold text-gray-700 mb-2">Production Requests</h3>
-          <p className="text-sm text-gray-500">Select from 20 production requests</p>
+          <h3 className="font-semibold text-gray-700 mb-2">
+            Production Requests
+          </h3>
+          <p className="text-sm text-gray-500">
+            Select from 20 production requests
+          </p>
         </Card>
         <Card className="bg-gray-50">
           <h3 className="font-semibold text-gray-700 mb-2">Data Categories</h3>
@@ -83,11 +100,7 @@ export function SplashStep({ onStart }: SplashStepProps) {
       </div>
 
       <div className="flex justify-center">
-        <Button
-          size="xl"
-          onClick={onStart}
-          className="px-8 py-3"
-        >
+        <Button size="xl" onClick={onStart} className="px-8 py-3">
           Start Search
         </Button>
       </div>

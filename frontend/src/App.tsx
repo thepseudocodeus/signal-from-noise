@@ -1,4 +1,4 @@
-import { Button, Card, Label, Select, Spinner } from "flowbite-react";
+import { Button, ButtonGroup, Card, Label, Select, Spinner } from "flowbite-react";
 import { useEffect, useState } from "react";
 import { ProgressIndicator } from "./components/shared/ProgressIndicator";
 import { CategoryStep } from "./components/steps/CategoryStep";
@@ -14,7 +14,7 @@ type ProductionRequest = {
 
 function App() {
   const [step, setStep] = useState<Step>("request");
-  const [selectedRequest, setSelectedRequest] = useState<string>("");
+  const [selectedRequest, setSelectedRequest] = useState<number | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<DataCategory[]>(
     []
   );
@@ -207,7 +207,7 @@ function App() {
               </Card>
             )}
 
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center mt-8" style={{ minHeight: '44px' }}>
               <Button color="gray" onClick={() => {}} disabled={true}>
                 Back
               </Button>
@@ -225,7 +225,7 @@ function App() {
         {/* Step 2: Category Selection */}
         {step === "categories" && (
           <>
-            {loading && availableCategories.length === 0 ? (
+            {loading && Object.keys(categories).length === 0 ? (
               <div className="flex justify-center items-center py-12">
                 <Spinner size="xl" />
                 <span className="ml-4 text-gray-600">
