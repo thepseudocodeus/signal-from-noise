@@ -1,8 +1,9 @@
+// ../App.tsx
 import { useEffect, useState } from "react";
-import { Button, Card, Label, Select, Spinner } from "flowbite-react";
-import { ProgressIndicator } from "./components/shared/ProgressIndicator";
+import { ProductionRequestStep } from "./components/steps/ProductionRequestStep";
 import { CategoryStep } from "./components/steps/CategoryStep";
 import { DataCategory } from "./types/query";
+import { Button, Card, Spinner } from "flowbite-react";
 
 type Step = "request" | "categories" | "dashboard";
 
@@ -14,130 +15,110 @@ type ProductionRequest = {
 
 function App() {
   const [step, setStep] = useState<Step>("request");
-
   const [requests, setRequests] = useState<ProductionRequest[]>([]);
-  const [selectedRequest, setSelectedRequest] = useState<number | null>(null);
+  const [selectedRequest, setSelectedRequest] =
+    useState<ProductionRequest | null>(null);
 
-  const [categories, setCategories] = useState<Record<string, number>>({});
   const [selectedCategories, setSelectedCategories] = useState<DataCategory[]>(
     []
   );
+  const [categories, setCategories] = useState<DataCategory[]>([
+    "Email",
+    "Claims",
+    "Other",
+  ]);
 
   const [files, setFiles] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loadingRequests, setLoadingRequests] = useState(true);
+  const [loadingCategories, setLoadingCategories] = useState(false);
+  const [loadingFiles, setLoadingFiles] = useState(false);
 
-  /* -------------------------
-     Load production requests
-  -------------------------- */
+  // --- Load requests from Wails / JSON ---
   useEffect(() => {
-    const load = async () => {
-      let attempts = 0;
-
-      while (attempts < 50) {
-        if ((window as any)?.go?.main?.App) break;
-        await new Promise((r) => setTimeout(r, 100));
-        attempts++;
-      }
-
-      setLoading(true);
+    const loadRequests = async () => {
+      setLoadingRequests(true);
       try {
         const { GetProductionRequests } = await import(
           "../wailsjs/go/main/App"
         );
-        const data = await GetProductionRequests();
-
-        setRequests(
-          (data || []).map((r: any) => ({
-            id: r.id,
-            title: r.title || `REQUEST FOR PRODUCTION NO: ${r.id}`,
-            description: r.description || "",
-          }))
-        );
+        const res = await GetProductionRequests();
+        setRequests(res || []);
       } catch (err) {
         console.error(err);
+        setRequests([]);
       } finally {
-        setLoading(false);
+        setLoadingRequests(false);
       }
     };
-
-    load();
+    loadRequests();
   }, []);
 
-  /* -------------------------
-     Load categories on step
-  -------------------------- */
-  useEffect(() => {
-    if (step !== "categories") return;
-
-    const load = async () => {
-      setLoading(true);
-      try {
-        const { GetCategories } = await import("../wailsjs/go/main/App");
-        const data = await GetCategories();
-        setCategories(data || {});
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    load();
-  }, [step]);
-
-  /* -------------------------
-     Navigation handlers
-  -------------------------- */
-  const nextFromRequest = () => {
-    if (selectedRequest !== null) {
-      setStep("categories");
-    }
-  };
-
-  const backToRequest = () => {
-    setStep("request");
-  };
-
-  const nextFromCategories = async () => {
-    if (selectedCategories.length === 0) return;
-
-    setLoading(true);
+  // --- Load categories ---
+  const loadCategories = async () => {
+    setLoadingCategories(true);
     try {
-      const { GetFiles } = await import("../wailsjs/go/main/App");
+      const { GetCategories } = await import("../wailsjs/go/main/App");
+      const res = await GetCategories();
 
-      const backendCats = selectedCategories.map((c) =>
-        c === "Email" ? "email" : c === "Claims" ? "claim" : "other"
-      );
-
-      const data = await GetFiles(backendCats);
-      setFiles(data || []);
-      setStep("dashboard");
+      const rawCats: string[] = Array.isArray(res)
+        ? res
+        : res && typeof res === "object"
+        ? Object.keys(res)
+        : [];
+      // Map backend strings to DataCategory
+      const mapped: DataCategory[] = rawCats.map((cat) => {
+        const c = String(cat).toLowerCase();
+        if (c === "email") return "Email";
+        if (c === "claim" || c === "claims") return "Claims";
+        return "Other";
+      });
+      setCategories(mapped.length ? mapped : ["Email", "Claims", "Other"]);
     } catch (err) {
       console.error(err);
+      setCategories(["Email", "Claims", "Other"]);
     } finally {
-      setLoading(false);
+      setLoadingCategories(false);
     }
   };
 
-  const backToCategories = () => {
+  // --- Handle Next from request page ---
+  const handleNextFromRequest = async () => {
+    if (!selectedRequest) return;
+    await loadCategories();
     setStep("categories");
   };
 
-  /* -------------------------
-     Derived data
-  -------------------------- */
-  const selectedRequestObj = requests.find((r) => r.id === selectedRequest);
+  // --- Handle Next from category page ---
+  const handleNextFromCategories = async () => {
+    if (!selectedCategories.length) return;
 
-  const availableCategories: DataCategory[] =
-    Object.keys(categories).length > 0
-      ? Object.keys(categories).map((c) =>
-          c === "email" ? "Email" : c === "claim" ? "Claims" : "Other"
-        )
-      : ["Email", "Claims", "Other"];
+    setLoadingFiles(true);
+    try {
+      const { GetFiles } = await import("../wailsjs/go/main/App");
+      // Backend expects lowercase strings
+      const catStrings = selectedCategories.map((c) =>
+        c === "Email" ? "email" : c === "Claims" ? "claim" : "other"
+      );
+      const res = await GetFiles(catStrings);
+      setFiles(res || []);
+      setStep("dashboard");
+    } catch (err) {
+      console.error(err);
+      alert("Error loading files: " + err);
+    } finally {
+      setLoadingFiles(false);
+    }
+  };
 
-  /* -------------------------
-     Render
-  -------------------------- */
+  const handleCategoryToggle = (category: DataCategory) => {
+    setSelectedCategories((prev) =>
+      prev.includes(category)
+        ? prev.filter((c) => c !== category)
+        : [...prev, category]
+    );
+  };
+
+  // --- Step Rendering ---
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-4xl mx-auto">
@@ -145,113 +126,110 @@ function App() {
           Signal from Noise
         </h1>
 
-        {/* STEP 1 — Request */}
         {step === "request" && (
-          <div className="max-w-2xl mx-auto">
-            <ProgressIndicator current={1} total={3} />
-
-            {loading ? (
-              <div className="flex justify-center py-12">
-                <Spinner size="xl" />
-              </div>
-            ) : (
-              <Card className="mt-8">
-                <Label htmlFor="request" value="Production request" />
-                <Select
-                  id="request"
-                  className="mt-2"
-                  value={selectedRequest ?? ""}
-                  onChange={(e) =>
-                    setSelectedRequest(
-                      e.target.value ? Number(e.target.value) : null
-                    )
-                  }
-                >
-                  <option value="">Choose a request…</option>
-                  {requests.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.title}
-                    </option>
-                  ))}
-                </Select>
-
-                {selectedRequestObj && (
-                  <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                    <p className="font-semibold">{selectedRequestObj.title}</p>
-                    <p className="text-sm text-gray-700">
-                      {selectedRequestObj.description}
-                    </p>
-                  </div>
-                )}
-              </Card>
-            )}
-
-            <div className="flex justify-end mt-8">
-              <Button
-                onClick={nextFromRequest}
-                disabled={selectedRequest === null}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
+          <ProductionRequestStep
+            requests={requests}
+            selected={selectedRequest}
+            onSelect={setSelectedRequest}
+            onNext={handleNextFromRequest}
+            loading={loadingRequests}
+          />
         )}
 
-        {/* STEP 2 — Categories */}
         {step === "categories" && (
-          <>
-            {loading && Object.keys(categories).length === 0 ? (
-              <div className="flex justify-center py-12">
-                <Spinner size="xl" />
-              </div>
-            ) : (
-              <CategoryStep
-                categories={availableCategories}
-                selected={selectedCategories}
-                onToggle={(c) =>
-                  setSelectedCategories((prev) =>
-                    prev.includes(c)
-                      ? prev.filter((x) => x !== c)
-                      : [...prev, c]
-                  )
-                }
-                onBack={backToRequest}
-                onNext={nextFromCategories}
-              />
-            )}
-          </>
+          <CategoryStep
+            categories={categories}
+            selected={selectedCategories}
+            onToggle={handleCategoryToggle}
+            onNext={handleNextFromCategories}
+            onBack={() => setStep("request")}
+            minSelection={1}
+          />
         )}
 
-        {/* STEP 3 — Dashboard */}
         {step === "dashboard" && (
-          <>
-            <ProgressIndicator current={3} total={3} />
+          <div className="max-w-3xl mx-auto">
+            <h2 className="text-2xl font-semibold text-gray-700 mb-6">
+              Dashboard
+            </h2>
 
-            <div className="mt-8 grid grid-cols-3 gap-4">
-              <Card>
-                <p>Total Files</p>
-                <p className="text-3xl font-bold">{files.length}</p>
-              </Card>
-              <Card>
-                <p>Categories</p>
-                <p className="text-3xl font-bold">
-                  {selectedCategories.length}
-                </p>
-              </Card>
-              <Card>
-                <p>Estimated Size</p>
-                <p className="text-3xl font-bold">
-                  ~{Math.round(files.length * 0.85)}
-                </p>
-              </Card>
-            </div>
+            {loadingFiles ? (
+              <div className="flex justify-center items-center py-12 space-x-4">
+                <Spinner size="xl" />
+                <span className="text-gray-600">Loading files...</span>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  <Card>
+                    <p className="text-gray-600 mb-2">Total Files</p>
+                    <p className="text-3xl font-bold text-gray-900">
+                      {files.length.toLocaleString()}
+                    </p>
+                  </Card>
+                  <Card>
+                    <p className="text-gray-600 mb-2">Categories</p>
+                    <p className="text-3xl font-bold text-gray-900">
+                      {selectedCategories.length}
+                    </p>
+                  </Card>
+                  <Card>
+                    <p className="text-gray-600 mb-2">Expected Zip Size</p>
+                    <p className="text-3xl font-bold text-gray-900">
+                      ~{Math.round(files.length * 0.85).toLocaleString()} files
+                    </p>
+                  </Card>
+                </div>
 
-            <div className="mt-8">
-              <Button color="gray" onClick={backToCategories}>
-                Back
-              </Button>
-            </div>
-          </>
+                <Card className="mb-6">
+                  <h3 className="text-xl font-bold text-gray-900 mb-4">
+                    Files
+                  </h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="p-2">Filename</th>
+                          <th className="p-2">Category</th>
+                          <th className="p-2">Path</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {files.slice(0, 50).map((file, idx) => (
+                          <tr key={file.path ?? file.id ?? `${file.category}:${file.filename}`} className="border-b hover:bg-gray-50">
+                            <td className="p-2 font-medium">{file.filename}</td>
+                            <td className="p-2">
+                              <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm capitalize">
+                                {file.category}
+                              </span>
+                            </td>
+                            <td
+                              className="p-2 text-sm text-gray-600 truncate max-w-md"
+                              title={file.path}
+                            >
+                              {file.path}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {files.length > 50 && (
+                      <p className="p-4 text-gray-600 text-center">
+                        Showing first 50 of {files.length.toLocaleString()}{" "}
+                        files
+                      </p>
+                    )}
+                  </div>
+                </Card>
+
+                <div className="flex justify-between">
+                  <Button color="gray" onClick={() => setStep("categories")}>
+                    Back
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
     </div>
